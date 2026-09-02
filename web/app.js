@@ -53,8 +53,12 @@
     voiceSpeaker: $("#voice-speaker"),
     voiceSpeed: $("#voice-speed"),
     voiceTestText: $("#voice-test-text"),
+    voiceStudioPlayback: $("#voice-studio-playback"),
+    voiceStudioPlaybackStatus: $("#voice-studio-playback-status"),
+    voiceStudioPlayer: $("#voice-studio-player"),
     voiceReferenceFile: $("#voice-reference-file"),
     voiceReferenceSelect: $("#voice-reference-select"),
+    voiceReferenceLibrary: $("#voice-reference-library"),
     uploadVoiceReference: $("#upload-voice-reference"),
     voiceStudioMessage: $("#voice-studio-message"),
     testVoice: $("#test-voice"),
@@ -730,12 +734,62 @@
       const selected = getStored("voice-reference");
       els.voiceReferenceSelect.replaceChildren(new Option("No cloning — use the base voice", ""));
       for (const reference of asArray(references.references)) {
-        els.voiceReferenceSelect.add(new Option(String(reference.name), String(reference.name)));
+        els.voiceReferenceSelect.add(new Option(String(reference.label || reference.name), String(reference.name)));
       }
       els.voiceReferenceSelect.value = [...els.voiceReferenceSelect.options].some((option) => option.value === selected) ? selected : "";
+      renderVoiceReferenceLibrary(asArray(references.references));
     } catch (error) {
       els.voiceRuntimeState.textContent = `Could not check OpenVoice: ${error.message}`;
       els.voiceRuntimeState.dataset.ready = "false";
+    }
+  }
+
+  function renderVoiceReferenceLibrary(references) {
+    els.voiceReferenceLibrary.replaceChildren();
+    if (!references.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No saved reference recordings yet.";
+      els.voiceReferenceLibrary.append(empty);
+      return;
+    }
+    for (const reference of references) {
+      const card = document.createElement("article");
+      card.className = "voice-reference-item";
+      const details = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = String(reference.label || reference.name);
+      const meta = document.createElement("small");
+      meta.textContent = formatBytes(Number(reference.size));
+      details.append(name, meta);
+      const actions = document.createElement("div");
+      const use = document.createElement("button");
+      use.type = "button";
+      use.className = "text-button";
+      use.textContent = "Use";
+      use.addEventListener("click", () => {
+        els.voiceReferenceSelect.value = String(reference.name);
+        saveVoiceSettings();
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "text-button danger-text-button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", async () => {
+        if (!window.confirm(`Remove the local reference “${name.textContent}”?`)) return;
+        remove.disabled = true;
+        try {
+          await api(`/api/voice/references/${encodeURIComponent(String(reference.name))}`, { method: "DELETE" });
+          if (els.voiceReferenceSelect.value === String(reference.name)) els.voiceReferenceSelect.value = "";
+          await loadVoiceStudio();
+          els.voiceStudioMessage.textContent = "Reference recording removed.";
+        } catch (error) {
+          els.voiceStudioMessage.textContent = error.message;
+          remove.disabled = false;
+        }
+      });
+      actions.append(use, remove);
+      card.append(details, actions);
+      els.voiceReferenceLibrary.append(card);
     }
   }
 
@@ -782,8 +836,19 @@
           reference: els.voiceReferenceSelect.value,
         },
       });
-      const playing = await playVoice(response.url, "Voice test is ready.");
-      els.voiceStudioMessage.textContent = playing ? "Voice test is playing." : "Voice test is ready — press Play in the message box.";
+      const player = els.voiceStudioPlayer;
+      player.pause();
+      player.src = response.url;
+      player.load();
+      els.voiceStudioPlayback.hidden = false;
+      els.voiceStudioPlaybackStatus.textContent = "Voice test is ready.";
+      try {
+        await player.play();
+        els.voiceStudioPlaybackStatus.textContent = "Voice test is playing.";
+        els.voiceStudioMessage.textContent = "Preview is playing in Voice Studio.";
+      } catch {
+        els.voiceStudioMessage.textContent = "Voice test is ready — press Play below.";
+      }
     } catch (error) {
       els.voiceStudioMessage.textContent = error.message;
     } finally {

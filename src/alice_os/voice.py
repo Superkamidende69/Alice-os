@@ -75,7 +75,14 @@ def list_voice_references(data_dir: Path) -> list[dict[str, str | int]]:
     entries = []
     for path in directory.iterdir():
         if path.is_file() and path.suffix.casefold() in REFERENCE_SUFFIXES:
-            entries.append({"name": path.name, "size": path.stat().st_size})
+            stem = re.sub(r"^[0-9a-f]{8}-", "", path.stem)
+            if re.fullmatch(r"alice-[0-9a-f]{16,}", stem):
+                label = "Alice voice sample"
+            elif stem.startswith("alice-"):
+                label = f"Alice reference {stem.removeprefix('alice-')}"
+            else:
+                label = stem.replace("-", " ")
+            entries.append({"name": path.name, "label": label, "size": path.stat().st_size})
     return sorted(entries, key=lambda entry: str(entry["name"]).casefold())
 
 
@@ -91,6 +98,14 @@ def save_voice_reference(*, data_dir: Path, filename: str, content: bytes) -> di
     target = target_dir / f"{uuid.uuid4().hex[:8]}-{stem[:80]}{suffix}"
     target.write_bytes(content)
     return {"name": target.name, "size": target.stat().st_size}
+
+
+def remove_voice_reference(*, data_dir: Path, name: str) -> None:
+    path = _reference_path(data_dir, name)
+    if path is None:
+        raise VoiceError("Choose a saved reference recording to remove.")
+    _embedding_cache_path(data_dir, path).unlink(missing_ok=True)
+    path.unlink()
 
 
 def _reference_path(data_dir: Path, name: str) -> Path | None:

@@ -63,6 +63,11 @@ def test_voice_reference_upload_stays_in_alice_data(tmp_path: Path) -> None:
         listed = client.get("/api/voice/references", headers=headers)
         assert listed.status_code == 200
         assert listed.json()["references"][0]["name"] == name
+        assert listed.json()["references"][0]["label"] == "allowed voice"
+
+        removed = client.delete(f"/api/voice/references/{name}", headers=headers)
+        assert removed.status_code == 204
+        assert not (data_dir / "voice" / "references" / name).exists()
 
         rejected = client.post(
             "/api/voice/references",

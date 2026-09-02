@@ -38,6 +38,7 @@ from .voice import (
     VoiceError,
     list_voice_references,
     openvoice_status,
+    remove_voice_reference,
     save_voice_reference,
     synthesize_openvoice,
 )
@@ -530,6 +531,14 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(400, str(error)) from error
         finally:
             await reference.close()
+
+    @app.delete("/api/voice/references/{name}", dependencies=[Depends(require_session)])
+    async def delete_voice_reference(name: str) -> Response:
+        try:
+            remove_voice_reference(data_dir=config.data_dir, name=name)
+        except VoiceError as error:
+            raise HTTPException(400, str(error)) from error
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.mount("/audio", StaticFiles(directory=audio_dir), name="audio")
     app.mount("/static", StaticFiles(directory=web_dir), name="static")

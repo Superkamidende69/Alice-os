@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=voice-panel-5" />
-    <script src="/static/app.js?v=voice-panel-5" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=voice-preview-7" />
+    <script src="/static/app.js?v=voice-preview-7" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -593,6 +593,10 @@
               <textarea id="voice-test-text" rows="4" maxlength="500">Hello. Alice voice systems are online.</textarea>
               <small>Audition a voice or reference without sending a chat message.</small>
             </label>
+            <div class="voice-studio-playback" id="voice-studio-playback" hidden>
+              <span id="voice-studio-playback-status" role="status">Preview ready.</span>
+              <audio id="voice-studio-player" controls preload="metadata" aria-label="Voice studio preview playback"></audio>
+            </div>
           </section>
         </div>
         <section class="voice-reference-section voice-card" aria-labelledby="voice-reference-title">
@@ -605,6 +609,7 @@
           <select id="voice-reference-select">
             <option value="">No cloning — use the base voice</option>
           </select>
+          <div class="voice-reference-library" id="voice-reference-library" aria-live="polite"></div>
         </section>
         <div class="form-message" id="voice-studio-message" role="status" aria-live="polite"></div>
         <footer class="modal-actions">

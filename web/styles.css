@@ -3178,6 +3178,21 @@ body {
   gap: 6px;
 }
 
+.voice-studio-playback {
+  display: grid;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.voice-studio-playback audio {
+  width: 100%;
+  height: 32px;
+  accent-color: var(--accent);
+}
+
 .voice-card label > span,
 .voice-reference-section h3 {
   color: var(--text-soft);
@@ -3212,4 +3227,54 @@ body {
 .voice-reference-section p {
   margin: 0;
   line-height: 1.45;
+}
+
+.voice-reference-library {
+  display: grid;
+  gap: 7px;
+}
+
+.voice-reference-library > p {
+  margin: 2px 0 0;
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.voice-reference-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.voice-reference-item > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.voice-reference-item strong {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-reference-item small {
+  color: var(--muted-2);
+  font-size: 9px;
+}
+
+.voice-reference-item > div:last-child {
+  display: flex;
+  gap: 9px;
+}
+
+.danger-text-button {
+  color: var(--red);
 }
