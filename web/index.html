@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=skills-agents-9" />
-    <script src="/static/app.js?v=skills-agents-9" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=custom-skills-10" />
+    <script src="/static/app.js?v=custom-skills-10" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -233,6 +233,7 @@
                   <option value="general">General agent</option>
                 </select>
               </label>
+              <button class="skill-manage" id="open-skills" type="button" title="Manage agent skills">Manage</button>
 
               <label class="agent-toggle" title="Speak Alice's completed replies with the local OpenVoice runtime">
                 <input type="checkbox" id="voice-output" />
@@ -371,6 +372,32 @@
           </form>
         </div>
       </div>
+    </dialog>
+
+    <dialog class="modal compact-modal skill-library-dialog" id="skills-dialog" aria-labelledby="skills-title">
+      <section class="modal-shell">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">LOCAL AGENT LIBRARY</p>
+            <h2 id="skills-title">Skills</h2>
+            <p>Skills focus Alice's workflow. They never add permissions.</p>
+          </div>
+          <button class="icon-button dialog-close" type="button" aria-label="Close skills">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+        <div class="skill-library-list" id="skill-library-list"></div>
+        <form class="provider-form skill-form" id="skill-form">
+          <h3>Create or update a custom skill</h3>
+          <label><span>Skill ID</span><input id="skill-id" required maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,38}" placeholder="python-engineer" /></label>
+          <label><span>Name</span><input id="skill-name" required maxlength="80" placeholder="Python engineer" /></label>
+          <label><span>Short description</span><input id="skill-description" required maxlength="240" placeholder="Build and improve Python projects." /></label>
+          <label><span>Workflow instructions</span><textarea id="skill-instructions" required maxlength="8000" rows="5" placeholder="Inspect the relevant files, explain your plan, then..." ></textarea></label>
+          <label class="skill-read-only"><input id="skill-read-only" type="checkbox" /><span>Read-only: do not expose file-write or process tools</span></label>
+          <div class="form-message" id="skill-form-message" role="status" aria-live="polite"></div>
+          <footer class="modal-actions"><button class="secondary-button dialog-cancel" type="button">Close</button><button class="primary-button" type="submit">Save skill</button></footer>
+        </form>
+      </section>
     </dialog>
 
     <dialog class="modal compact-modal" id="gguf-dialog" aria-labelledby="gguf-title">

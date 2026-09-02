@@ -38,6 +38,11 @@ message. Skills tailor Alice's workflow for that run: **Plan a feature** and
 can request the normal workspace tools. A skill never bypasses Alice's existing
 approval prompts for file changes or local processes.
 
+Use **Manage** beside the Skill menu to create local custom skills. Each custom
+skill has a name, a short description, detailed workflow instructions, and an
+optional read-only lock. They are saved in `<ALICE_HOME>/skills.json`; API keys,
+models, and workspace permissions are not stored in a skill.
+
 Alice is currently a text and workspace agent; dictation only fills the message
 box. It does not yet provide a general desktop-control layer, wake-word service,
 image input, RAG index, MCP client, or an OS-level command sandbox.

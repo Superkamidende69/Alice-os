@@ -36,6 +36,20 @@ def test_api_requires_session_token_and_rejects_foreign_origin(
             "implement",
         ]
 
+        custom = client.post(
+            "/api/skills",
+            json={
+                "id": "test-specialist",
+                "name": "Test specialist",
+                "description": "Design focused automated tests.",
+                "instructions": "Inspect existing tests before adding coverage.",
+                "read_only": True,
+            },
+        )
+        assert custom.status_code == 200
+        assert custom.json()["skill"]["read_only"] is True
+        assert client.delete("/api/skills/test-specialist").status_code == 204
+
         authenticated = client.post("/api/sessions", json={"workspace": str(workspace)})
         assert authenticated.status_code == 200
 

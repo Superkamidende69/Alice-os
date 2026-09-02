@@ -11,7 +11,7 @@ from typing import Any
 from .config import ConfigStore
 from .models import AssistantTurn, ToolCall
 from .providers import ProviderError, ToolsUnsupportedError, chat
-from .skills import AgentSkill, get_skill
+from .skills import AgentSkill, SkillStore
 from .storage import Storage
 from .tools import ToolContext, ToolError, ToolRegistry
 
@@ -83,10 +83,12 @@ class RunManager:
         storage: Storage,
         config: ConfigStore,
         tools: ToolRegistry | None = None,
+        skills: SkillStore | None = None,
     ) -> None:
         self.storage = storage
         self.config = config
         self.tools = tools or ToolRegistry()
+        self.skills = skills or SkillStore(config.data_dir)
         self.runs: dict[str, AgentRun] = {}
 
     def start(
@@ -109,7 +111,7 @@ class RunManager:
                 provider_id=provider_id,
                 model=model,
                 agent_mode=agent_mode,
-                skill=get_skill(skill_id),
+                skill=self.skills.get(skill_id),
             ),
             name=f"alice-run-{run.id}",
         )

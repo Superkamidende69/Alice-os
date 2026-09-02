@@ -32,7 +32,7 @@ from .runtimes import (
     pull_ollama_model,
     runtime_status,
 )
-from .skills import list_skills
+from .skills import AgentSkill, SkillStore
 from .storage import Storage
 from .tools import ToolContext, ToolError, workspace_list, workspace_read
 from .voice import (
@@ -66,6 +66,14 @@ class RunCreate(BaseModel):
     model: str
     agent_mode: bool = True
     skill_id: str = Field(default="general", max_length=40)
+
+
+class SkillUpsert(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=240)
+    instructions: str = Field(min_length=1, max_length=8_000)
+    read_only: bool = False
 
 
 class ApprovalDecision(BaseModel):
@@ -193,7 +201,8 @@ async def _workspace_git_diff(workspace: str, path: str) -> dict[str, Any]:
 def create_app(data_dir: Path | None = None) -> FastAPI:
     config = ConfigStore(data_dir)
     storage = Storage(config.data_dir / "alice.db")
-    runs = RunManager(storage, config)
+    skills = SkillStore(config.data_dir)
+    runs = RunManager(storage, config, skills=skills)
     download_jobs: dict[str, dict[str, Any]] = {}
     download_tasks: set[asyncio.Task[None]] = set()
     session_token = secrets.token_urlsafe(32)
@@ -224,6 +233,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     app.state.config = config
     app.state.storage = storage
     app.state.runs = runs
+    app.state.skills = skills
     app.state.download_jobs = download_jobs
     app.state.session_token = session_token
 
@@ -273,7 +283,27 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/skills", dependencies=[Depends(require_session)])
     async def skills() -> dict[str, Any]:
-        return {"skills": list_skills()}
+        return {"skills": app.state.skills.list()}
+
+    @app.post("/api/skills", dependencies=[Depends(require_session)])
+    async def save_skill(body: SkillUpsert) -> dict[str, Any]:
+        try:
+            skill = app.state.skills.upsert(AgentSkill(**body.model_dump()))
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"skill": app.state.skills._public(skill, built_in=False)}
+
+    @app.delete(
+        "/api/skills/{skill_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_session)],
+    )
+    async def remove_skill(skill_id: str) -> Response:
+        try:
+            app.state.skills.delete(skill_id)
+        except KeyError as error:
+            raise HTTPException(404, "Unknown custom skill") from error
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/api/providers", dependencies=[Depends(require_session)])
     async def save_provider(profile: ProviderProfile) -> dict[str, Any]:

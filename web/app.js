@@ -41,6 +41,16 @@
     stopButton: $("#stop-button"),
     agentMode: $("#agent-mode"),
     skillSelect: $("#skill-select"),
+    openSkills: $("#open-skills"),
+    skillsDialog: $("#skills-dialog"),
+    skillLibraryList: $("#skill-library-list"),
+    skillForm: $("#skill-form"),
+    skillId: $("#skill-id"),
+    skillName: $("#skill-name"),
+    skillDescription: $("#skill-description"),
+    skillInstructions: $("#skill-instructions"),
+    skillReadOnly: $("#skill-read-only"),
+    skillFormMessage: $("#skill-form-message"),
     voiceOutput: $("#voice-output"),
     voicePanelOutput: $("#voice-panel-output"),
     openVoiceStudio: $("#open-voice-studio"),
@@ -2007,6 +2017,85 @@
       els.skillSelect.add(new Option(`${skill.name} — ${skill.description}`, skill.id));
     }
     els.skillSelect.value = state.skills.some((skill) => skill.id === saved) ? saved : "general";
+    renderSkillLibrary();
+  }
+
+  function renderSkillLibrary() {
+    els.skillLibraryList.replaceChildren();
+    for (const skill of state.skills) {
+      const row = document.createElement("article");
+      row.className = "skill-library-row";
+      const copy = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = skill.name;
+      const description = document.createElement("p");
+      description.textContent = `${skill.description}${skill.read_only ? " · Read-only" : ""}`;
+      copy.append(title, description);
+      row.append(copy);
+      if (!skill.built_in) {
+        const actions = document.createElement("div");
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "secondary-button";
+        edit.textContent = "Edit";
+        edit.addEventListener("click", () => {
+          els.skillId.value = skill.id;
+          els.skillName.value = skill.name;
+          els.skillDescription.value = skill.description;
+          els.skillInstructions.value = skill.instructions || "";
+          els.skillReadOnly.checked = Boolean(skill.read_only);
+          els.skillId.focus();
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "icon-button danger-button";
+        remove.title = `Delete ${skill.name}`;
+        remove.setAttribute("aria-label", `Delete ${skill.name}`);
+        remove.innerHTML = '<svg><use href="#icon-trash"></use></svg>';
+        remove.addEventListener("click", () => deleteSkill(skill));
+        actions.append(edit, remove);
+        row.append(actions);
+      }
+      els.skillLibraryList.append(row);
+    }
+  }
+
+  async function saveSkill(event) {
+    event.preventDefault();
+    els.skillFormMessage.textContent = "";
+    try {
+      await api("/api/skills", {
+        method: "POST",
+        body: {
+          id: els.skillId.value.trim().toLowerCase(),
+          name: els.skillName.value.trim(),
+          description: els.skillDescription.value.trim(),
+          instructions: els.skillInstructions.value.trim(),
+          read_only: els.skillReadOnly.checked,
+        },
+      });
+      els.skillForm.reset();
+      await loadSkills();
+      els.skillFormMessage.textContent = "Skill saved locally.";
+      showToast("Custom skill saved.", "success");
+    } catch (error) {
+      els.skillFormMessage.textContent = error.message;
+    }
+  }
+
+  async function deleteSkill(skill) {
+    if (!window.confirm(`Delete custom skill “${skill.name}”?`)) return;
+    try {
+      await api(`/api/skills/${encodeURIComponent(skill.id)}`, { method: "DELETE" });
+      if (els.skillSelect.value === skill.id) {
+        els.skillSelect.value = "general";
+        setStored("agent-skill", "general");
+      }
+      await loadSkills();
+      showToast("Custom skill deleted.", "success");
+    } catch (error) {
+      showToast(`Could not delete skill: ${error.message}`, "error");
+    }
   }
 
   function runtimeDetail(data) {
@@ -2097,6 +2186,13 @@
     });
     els.agentMode.addEventListener("change", updateComposerState);
     els.skillSelect.addEventListener("change", () => setStored("agent-skill", els.skillSelect.value));
+    els.openSkills.addEventListener("click", () => {
+      els.skillForm.reset();
+      els.skillFormMessage.textContent = "";
+      renderSkillLibrary();
+      openDialog(els.skillsDialog);
+    });
+    els.skillForm.addEventListener("submit", saveSkill);
     els.voiceOutput.checked = getStored("voice-output") !== "false";
     restoreVoiceSettings();
     els.voiceOutput.addEventListener("change", () => {

@@ -1426,6 +1426,29 @@ kbd {
   background: #16151c;
 }
 
+.skill-manage {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(183, 156, 255, 0.14);
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font: 650 9.5px/1 inherit;
+  cursor: pointer;
+}
+
+.skill-manage:hover { color: var(--text-soft); border-color: rgba(183, 156, 255, 0.3); }
+
+.skill-library-dialog .modal-shell { max-width: 720px; }
+.skill-library-list { display: grid; gap: 7px; margin: 4px 0 16px; max-height: 240px; overflow: auto; }
+.skill-library-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9px; background: rgba(255, 255, 255, 0.025); }
+.skill-library-row strong { color: var(--text-soft); font-size: 12px; }
+.skill-library-row p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+.skill-library-row > div:last-child { display: flex; gap: 6px; }
+.skill-form textarea { min-height: 100px; resize: vertical; }
+.skill-read-only { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.skill-read-only input { width: auto; accent-color: var(--accent); }
+
 .workspace-control {
   display: flex;
   min-width: 100px;
