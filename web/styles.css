@@ -3110,21 +3110,84 @@ body {
   color: var(--green);
 }
 
-.voice-studio-shell > label,
+.voice-overview,
+.voice-settings-grid {
+  display: grid;
+  gap: 13px;
+}
+
+.voice-overview {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(183, 156, 255, 0.1), rgba(110, 231, 183, 0.035));
+}
+
+.voice-overview .eyebrow {
+  margin: 0 0 7px;
+}
+
+.voice-overview .voice-runtime-state {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.voice-output-toggle {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.voice-output-toggle input {
+  width: 15px;
+  height: 15px;
+  grid-row: span 2;
+  accent-color: var(--accent);
+}
+
+.voice-output-toggle small {
+  color: var(--muted-2);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.voice-settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.voice-card,
 .voice-reference-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.voice-card label {
   display: grid;
   gap: 6px;
 }
 
-.voice-studio-shell label > span,
+.voice-card label > span,
 .voice-reference-section h3 {
   color: var(--text-soft);
   font-size: 0.78rem;
   font-weight: 600;
 }
 
-.voice-studio-shell select,
-.voice-studio-shell input[type="file"] {
+.voice-card select,
+.voice-card input[type="file"],
+.voice-card textarea {
   width: 100%;
   min-height: 38px;
   border: 1px solid var(--border-strong);
@@ -3133,15 +3196,17 @@ body {
   background: #171717;
 }
 
-.voice-reference-section {
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
 .voice-reference-section .section-heading span,
 .voice-reference-section p {
   color: var(--muted);
   font-size: 0.7rem;
+}
+
+@media (max-width: 620px) {
+  .voice-settings-grid,
+  .voice-overview {
+    grid-template-columns: 1fr;
+  }
 }
 
 .voice-reference-section p {

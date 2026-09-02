@@ -41,6 +41,7 @@
     stopButton: $("#stop-button"),
     agentMode: $("#agent-mode"),
     voiceOutput: $("#voice-output"),
+    voicePanelOutput: $("#voice-panel-output"),
     openVoiceStudio: $("#open-voice-studio"),
     voicePlayback: $("#voice-playback"),
     voicePlaybackStatus: $("#voice-playback-status"),
@@ -720,6 +721,7 @@
 
   async function loadVoiceStudio() {
     els.voiceStudioMessage.textContent = "";
+    els.voicePanelOutput.checked = els.voiceOutput.checked;
     els.voiceRuntimeState.textContent = "Checking local OpenVoice…";
     try {
       const [runtime, references] = await Promise.all([api("/api/voice/status"), api("/api/voice/references")]);
@@ -1988,6 +1990,11 @@
     els.voiceOutput.checked = getStored("voice-output") !== "false";
     restoreVoiceSettings();
     els.voiceOutput.addEventListener("change", () => {
+      setStored("voice-output", els.voiceOutput.checked ? "true" : "false");
+      els.voicePanelOutput.checked = els.voiceOutput.checked;
+    });
+    els.voicePanelOutput.addEventListener("change", () => {
+      els.voiceOutput.checked = els.voicePanelOutput.checked;
       setStored("voice-output", els.voiceOutput.checked ? "true" : "false");
     });
     els.voicePlayer.addEventListener("play", startPeakMeter);

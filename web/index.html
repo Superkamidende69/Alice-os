@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=voice-meters-persistent-4" />
-    <script src="/static/app.js?v=voice-meters-persistent-4" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=voice-panel-5" />
+    <script src="/static/app.js?v=voice-panel-5" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -555,29 +555,47 @@
             <svg><use href="#icon-close"></use></svg>
           </button>
         </header>
-        <div class="voice-runtime-state" id="voice-runtime-state" role="status" aria-live="polite"></div>
-        <label>
-          <span>Base voice</span>
-          <select id="voice-speaker">
-            <option value="OPENVOICE-FEMALE" selected>Alice female — OpenVoice GPU (recommended)</option>
-            <option value="EN-Newest">OpenVoice English — GPU</option>
-            <option value="WINDOWS-ZIRA">Basic female — Windows fallback</option>
-          </select>
-        </label>
-        <label>
-          <span>Speech speed</span>
-          <select id="voice-speed">
-            <option value="0.85">Calm · 0.85×</option>
-            <option value="1" selected>Natural · 1.0×</option>
-            <option value="1.15">Fast · 1.15×</option>
-          </select>
-        </label>
-        <label>
-          <span>Studio preview text</span>
-          <textarea id="voice-test-text" rows="3" maxlength="500">Hello. Alice voice systems are online.</textarea>
-          <small>Use this to audition a voice or reference without sending a chat message.</small>
-        </label>
-        <section class="voice-reference-section" aria-labelledby="voice-reference-title">
+        <section class="voice-overview" aria-label="Voice output status">
+          <div>
+            <p class="eyebrow">VOICE ENGINE</p>
+            <div class="voice-runtime-state" id="voice-runtime-state" role="status" aria-live="polite"></div>
+          </div>
+          <label class="voice-output-toggle">
+            <input id="voice-panel-output" type="checkbox" />
+            <span>Speak completed replies</span>
+            <small>Local only</small>
+          </label>
+        </section>
+        <div class="voice-settings-grid">
+          <section class="voice-card" aria-labelledby="voice-voice-title">
+            <div class="section-heading"><h3 id="voice-voice-title">Voice profile</h3><span>OpenVoice</span></div>
+            <label>
+              <span>Base voice</span>
+              <select id="voice-speaker">
+                <option value="OPENVOICE-FEMALE" selected>Alice female — OpenVoice GPU (recommended)</option>
+                <option value="EN-Newest">OpenVoice English — GPU</option>
+                <option value="WINDOWS-ZIRA">Basic female — Windows fallback</option>
+              </select>
+            </label>
+            <label>
+              <span>Speech speed</span>
+              <select id="voice-speed">
+                <option value="0.85">Calm · 0.85×</option>
+                <option value="1" selected>Natural · 1.0×</option>
+                <option value="1.15">Fast · 1.15×</option>
+              </select>
+            </label>
+          </section>
+          <section class="voice-card" aria-labelledby="voice-preview-title">
+            <div class="section-heading"><h3 id="voice-preview-title">Preview</h3><span>Up to 500 characters</span></div>
+            <label>
+              <span>Studio preview text</span>
+              <textarea id="voice-test-text" rows="4" maxlength="500">Hello. Alice voice systems are online.</textarea>
+              <small>Audition a voice or reference without sending a chat message.</small>
+            </label>
+          </section>
+        </div>
+        <section class="voice-reference-section voice-card" aria-labelledby="voice-reference-title">
           <div class="section-heading"><h3 id="voice-reference-title">Optional voice reference</h3><span>Permission required</span></div>
           <p>Use a clean, single-speaker recording only when you have permission. It remains on this computer.</p>
           <div class="model-pull-row">
