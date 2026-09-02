@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=voice-studio-4" />
-    <script src="/static/app.js?v=voice-studio-4" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=voice-settings-screen-1" />
+    <script src="/static/app.js?v=voice-settings-screen-1" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -232,7 +232,7 @@
                 <svg aria-hidden="true"><use href="#icon-speaker"></use></svg>
                 <span>Speak replies</span>
               </label>
-              <button class="voice-button" id="open-voice-studio" type="button" aria-label="Open Voice Studio" title="OpenVoice settings">
+              <button class="voice-button" id="open-voice-studio" type="button" aria-label="Open Voice Settings" title="OpenVoice settings">
                 <svg><use href="#icon-speaker"></use></svg>
                 <span class="voice-label">Voice</span>
               </button>
@@ -540,15 +540,15 @@
 
       <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-    <dialog class="modal compact-modal" id="voice-studio-dialog" aria-labelledby="voice-studio-title">
+    <dialog class="modal voice-studio-dialog" id="voice-studio-dialog" aria-labelledby="voice-studio-title">
       <div class="modal-shell voice-studio-shell">
         <header class="modal-header">
           <div>
             <p class="eyebrow">LOCAL VOICE</p>
-            <h2 id="voice-studio-title">Voice Studio</h2>
-            <p>Configure spoken replies and optionally use a reference recording you are allowed to use.</p>
+            <h2 id="voice-studio-title">Voice settings</h2>
+            <p>A dedicated control room for Alice’s local OpenVoice speech, voice references, and previews.</p>
           </div>
-          <button class="icon-button dialog-close" type="button" aria-label="Close Voice Studio">
+          <button class="icon-button dialog-close" type="button" aria-label="Back to chat" title="Back to chat">
             <svg><use href="#icon-close"></use></svg>
           </button>
         </header>

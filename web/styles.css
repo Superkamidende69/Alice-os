@@ -3019,6 +3019,39 @@ body {
   display: flex;
   flex-direction: column;
   gap: 13px;
+  width: min(760px, 100%);
+  min-height: 100%;
+  max-height: none;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 28px 32px;
+}
+
+.voice-studio-dialog {
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #0b0e13;
+}
+
+.voice-studio-dialog::backdrop {
+  background: #0b0e13;
+}
+
+.voice-studio-dialog .modal-header {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.voice-studio-dialog .modal-actions {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
 }
 
 .voice-runtime-state {
