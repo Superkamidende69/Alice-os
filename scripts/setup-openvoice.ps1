@@ -63,7 +63,9 @@ Invoke-OpenVoiceCommand "Installing MeloTTS and OpenVoice runtime packages" { & 
 # unidic package redirects MeCab to a dictionary that needs a Unix-only helper.
 & $openVoicePython -m pip uninstall --yes unidic | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "Removing the incompatible full UniDic package failed (exit code $LASTEXITCODE)." }
-Invoke-OpenVoiceCommand "Downloading MeloTTS English language data" { & $openVoicePython -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', quiet=True)" }
+$nltkData = Join-Path $openVoiceRoot ".venv\nltk_data"
+New-Item -ItemType Directory -Force -Path $nltkData | Out-Null
+Invoke-OpenVoiceCommand "Downloading MeloTTS English language data" { & $openVoicePython -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', download_dir=r'$nltkData', quiet=True)" }
 if (-not (Get-Command "ffmpeg" -ErrorAction SilentlyContinue)) {
     Write-Warning "FFmpeg is not on PATH. Install it (for example: winget install --id Gyan.FFmpeg.Essentials --exact --scope user) before using MP3/M4A voice references."
 }
