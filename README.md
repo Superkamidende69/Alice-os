@@ -30,6 +30,14 @@ not affiliated with the fictional JARVIS.
   Speech Recognition API.
 - Optional local OpenVoice/MeloTTS spoken replies, with an isolated runtime.
 
+## Agent skills
+
+Choose a skill from the **Skill** menu beside Agent mode before sending a
+message. Skills tailor Alice's workflow for that run: **Plan a feature** and
+**Review code** are read-only, while **Debug an issue** and **Implement safely**
+can request the normal workspace tools. A skill never bypasses Alice's existing
+approval prompts for file changes or local processes.
+
 Alice is currently a text and workspace agent; dictation only fills the message
 box. It does not yet provide a general desktop-control layer, wake-word service,
 image input, RAG index, MCP client, or an OS-level command sandbox.

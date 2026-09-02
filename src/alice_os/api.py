@@ -32,6 +32,7 @@ from .runtimes import (
     pull_ollama_model,
     runtime_status,
 )
+from .skills import list_skills
 from .storage import Storage
 from .tools import ToolContext, ToolError, workspace_list, workspace_read
 from .voice import (
@@ -64,6 +65,7 @@ class RunCreate(BaseModel):
     provider_id: str
     model: str
     agent_mode: bool = True
+    skill_id: str = Field(default="general", max_length=40)
 
 
 class ApprovalDecision(BaseModel):
@@ -269,6 +271,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             },
         }
 
+    @app.get("/api/skills", dependencies=[Depends(require_session)])
+    async def skills() -> dict[str, Any]:
+        return {"skills": list_skills()}
+
     @app.post("/api/providers", dependencies=[Depends(require_session)])
     async def save_provider(profile: ProviderProfile) -> dict[str, Any]:
         _validate_provider_url(profile)
@@ -351,6 +357,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                 provider_id=body.provider_id,
                 model=body.model,
                 agent_mode=body.agent_mode,
+                skill_id=body.skill_id,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error

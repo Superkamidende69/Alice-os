@@ -40,6 +40,7 @@
     sendButton: $("#send-button"),
     stopButton: $("#stop-button"),
     agentMode: $("#agent-mode"),
+    skillSelect: $("#skill-select"),
     voiceOutput: $("#voice-output"),
     voicePanelOutput: $("#voice-panel-output"),
     openVoiceStudio: $("#open-voice-studio"),
@@ -138,6 +139,7 @@
     selectedProviderId: "",
     selectedModel: "",
     models: [],
+    skills: [],
     activeRun: null,
     eventSource: null,
     streamingElement: null,
@@ -1074,6 +1076,7 @@
           provider_id: state.selectedProviderId,
           model: state.selectedModel,
           agent_mode: els.agentMode.checked,
+          skill_id: els.skillSelect.value,
         },
       });
       const runId = String(firstValue(response, ["id", "run_id", "runId"], firstValue(response.run, ["id", "run_id"], "")));
@@ -1995,6 +1998,17 @@
     if (refreshModels) await loadModels(state.selectedProviderId, state.selectedModel);
   }
 
+  async function loadSkills() {
+    const response = await api("/api/skills");
+    state.skills = asArray(response.skills);
+    const saved = getStored("agent-skill") || "general";
+    els.skillSelect.replaceChildren();
+    for (const skill of state.skills) {
+      els.skillSelect.add(new Option(`${skill.name} — ${skill.description}`, skill.id));
+    }
+    els.skillSelect.value = state.skills.some((skill) => skill.id === saved) ? saved : "general";
+  }
+
   function runtimeDetail(data) {
     const ollama = data?.runtimes?.ollama;
     if (ollama && typeof ollama === "object") {
@@ -2024,6 +2038,7 @@
       hydrateState(data);
       setEngine("online", "Alice Core online", runtimeDetail(data));
       await loadModels(state.selectedProviderId, state.selectedModel);
+      await loadSkills();
       if (state.activeSessionId) await openSessionFromBootstrap(state.activeSessionId, data);
       else renderTranscript([]);
       setRunState("ready", "Ready");
@@ -2081,6 +2096,7 @@
       }
     });
     els.agentMode.addEventListener("change", updateComposerState);
+    els.skillSelect.addEventListener("change", () => setStored("agent-skill", els.skillSelect.value));
     els.voiceOutput.checked = getStored("voice-output") !== "false";
     restoreVoiceSettings();
     els.voiceOutput.addEventListener("change", () => {

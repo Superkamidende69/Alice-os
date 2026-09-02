@@ -420,8 +420,11 @@ class ToolRegistry:
             ),
         }
 
-    def definitions(self) -> list[dict[str, Any]]:
-        return [tool.as_openai() for tool in self._tools.values()]
+    def definitions(self, *, read_only: bool = False) -> list[dict[str, Any]]:
+        tools = self._tools.values()
+        if read_only:
+            tools = (tool for tool in tools if not tool.requires_approval)
+        return [tool.as_openai() for tool in tools]
 
     def get(self, name: str) -> ToolDefinition:
         try:

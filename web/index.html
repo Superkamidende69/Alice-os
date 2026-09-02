@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=workspace-review-8" />
-    <script src="/static/app.js?v=workspace-review-8" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=skills-agents-9" />
+    <script src="/static/app.js?v=skills-agents-9" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -225,6 +225,13 @@
                 <span class="toggle-track" aria-hidden="true"><span></span></span>
                 <svg aria-hidden="true"><use href="#icon-spark"></use></svg>
                 <span>Agent mode</span>
+              </label>
+
+              <label class="skill-control" title="Choose the workflow Alice should follow for this run">
+                <span>Skill</span>
+                <select id="skill-select" aria-label="Agent skill">
+                  <option value="general">General agent</option>
+                </select>
               </label>
 
               <label class="agent-toggle" title="Speak Alice's completed replies with the local OpenVoice runtime">

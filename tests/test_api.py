@@ -26,6 +26,16 @@ def test_api_requires_session_token_and_rejects_foreign_origin(
         assert "httponly" in cookie
         assert "samesite=strict" in cookie
 
+        skills = client.get("/api/skills")
+        assert skills.status_code == 200
+        assert [skill["id"] for skill in skills.json()["skills"]] == [
+            "general",
+            "plan",
+            "debug",
+            "review",
+            "implement",
+        ]
+
         authenticated = client.post("/api/sessions", json={"workspace": str(workspace)})
         assert authenticated.status_code == 200
 

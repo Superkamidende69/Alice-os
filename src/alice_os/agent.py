@@ -11,6 +11,7 @@ from typing import Any
 from .config import ConfigStore
 from .models import AssistantTurn, ToolCall
 from .providers import ProviderError, ToolsUnsupportedError, chat
+from .skills import AgentSkill, get_skill
 from .storage import Storage
 from .tools import ToolContext, ToolError, ToolRegistry
 
@@ -96,6 +97,7 @@ class RunManager:
         provider_id: str,
         model: str,
         agent_mode: bool,
+        skill_id: str = "general",
     ) -> AgentRun:
         self.storage.get_session(session_id, include_messages=False)
         run = AgentRun(id=uuid.uuid4().hex, session_id=session_id)
@@ -107,6 +109,7 @@ class RunManager:
                 provider_id=provider_id,
                 model=model,
                 agent_mode=agent_mode,
+                skill=get_skill(skill_id),
             ),
             name=f"alice-run-{run.id}",
         )
@@ -147,6 +150,7 @@ class RunManager:
         provider_id: str,
         model: str,
         agent_mode: bool,
+        skill: AgentSkill,
     ) -> None:
         try:
             profile = self.config.get_provider(provider_id)
@@ -166,11 +170,12 @@ class RunManager:
                 provider=profile.name,
                 model=model,
                 workspace=str(workspace),
+                skill=skill.name,
             )
             fallback_protocol = False
             repeated_calls: dict[str, int] = {}
             for step in range(1, MAX_AGENT_STEPS + 1):
-                messages = self._provider_messages(run.session_id, fallback_protocol)
+                messages = self._provider_messages(run.session_id, fallback_protocol, skill)
 
                 async def emit_token(token: str) -> None:
                     await run.emit("token", text=token, step=step)
@@ -180,7 +185,7 @@ class RunManager:
                         profile,
                         model=model,
                         messages=messages,
-                        tools=self.tools.definitions()
+                        tools=self.tools.definitions(read_only=skill.read_only)
                         if agent_mode and not fallback_protocol
                         else None,
                         on_token=None if fallback_protocol else emit_token,
@@ -220,7 +225,13 @@ class RunManager:
                                 }
                             )
                         else:
-                            result = await self._execute_tool(run, call, workspace, fingerprint)
+                            result = await self._execute_tool(
+                                run,
+                                call,
+                                workspace,
+                                fingerprint,
+                                read_only=skill.read_only,
+                            )
                         self.storage.add_message(
                             run.session_id,
                             "tool",
@@ -249,8 +260,8 @@ class RunManager:
                 "error", message=f"Unexpected agent error: {error}", type=type(error).__name__
             )
 
-    def _provider_messages(self, session_id: str, fallback_protocol: bool) -> list[dict[str, Any]]:
-        system = SYSTEM_PROMPT
+    def _provider_messages(self, session_id: str, fallback_protocol: bool, skill: AgentSkill) -> list[dict[str, Any]]:
+        system = f"{SYSTEM_PROMPT}\n\nActive skill: {skill.name}\n{skill.instructions}"
         if fallback_protocol:
             system = f"{system}\n\n{FALLBACK_TOOL_PROMPT}"
         messages: list[dict[str, Any]] = [{"role": "system", "content": system, "metadata": {}}]
@@ -271,12 +282,20 @@ class RunManager:
         call: ToolCall,
         workspace: Path,
         fingerprint: str,
+        *,
+        read_only: bool = False,
     ) -> str:
         context = ToolContext(workspace=workspace, session_id=run.session_id, storage=self.storage)
         try:
             tool = self.tools.get(call.name)
         except ToolError as error:
             result = json.dumps({"error": str(error)})
+            await run.emit("tool_result", call_id=call.id, tool=call.name, result=result, ok=False)
+            return result
+        if read_only and tool.requires_approval:
+            result = json.dumps(
+                {"error": f"{tool.name} is unavailable while the active skill is read-only."}
+            )
             await run.emit("tool_result", call_id=call.id, tool=call.name, result=result, ok=False)
             return result
         await run.emit(
