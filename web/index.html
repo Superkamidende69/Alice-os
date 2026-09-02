@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090b0f" />
+    <meta
+      name="description"
+      content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
+    />
+    <title>Alice OS</title>
+    <link rel="stylesheet" href="/static/styles.css?v=openvoice-female-3" />
+    <script src="/static/app.js?v=openvoice-female-3" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#composer-input">Skip to message composer</a>
+
+    <svg class="svg-sprite" aria-hidden="true">
+      <symbol id="icon-alice" viewBox="0 0 32 32">
+        <path d="M16 3.5 27 9.8v12.4L16 28.5 5 22.2V9.8L16 3.5Z" />
+        <path d="m10 20 6-11 6 11M12.1 16.2h7.8" />
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 12h16M4 17h16" />
+      </symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
+      </symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24">
+        <path d="m8 10 4 4 4-4" />
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 7v5h-5M4 17v-5h5" />
+        <path d="M6.1 8.5A7 7 0 0 1 18.6 7M17.9 15.5A7 7 0 0 1 5.4 17" />
+      </symbol>
+      <symbol id="icon-mic" viewBox="0 0 24 24">
+        <rect x="9" y="3" width="6" height="11" rx="3" />
+        <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" />
+      </symbol>
+      <symbol id="icon-speaker" viewBox="0 0 24 24">
+        <path d="M4 10v4h4l5 4V6l-5 4H4Z" />
+        <path d="M16 9.5a4 4 0 0 1 0 5M18.7 7a7.5 7.5 0 0 1 0 10" />
+      </symbol>
+      <symbol id="icon-send" viewBox="0 0 24 24">
+        <path d="m4 4 17 8-17 8 3-8-3-8Z" />
+        <path d="M7 12h14" />
+      </symbol>
+      <symbol id="icon-stop" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 6.5h7l2 2h9v10.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.5Z" />
+      </symbol>
+      <symbol id="icon-spark" viewBox="0 0 24 24">
+        <path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3ZM18.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" />
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16" />
+      </symbol>
+      <symbol id="icon-tool" viewBox="0 0 24 24">
+        <path d="M14.5 6.5a4 4 0 0 0-5-5L12 4l-3 3-2.5-2.5a4 4 0 0 0 5 5L19 17l-2 2-7.5-7.5" />
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24">
+        <path d="M12 3 2.5 20h19L12 3ZM12 9v5M12 17.5v.1" />
+      </symbol>
+    </svg>
+
+    <div class="app-shell" id="app-shell">
+      <button class="sidebar-scrim" id="sidebar-scrim" type="button" aria-label="Close sessions"></button>
+
+      <aside class="sidebar" id="session-sidebar" aria-label="Conversation sessions">
+        <div class="brand-row">
+          <a class="brand" href="#" aria-label="Alice OS home">
+            <span class="brand-mark" aria-hidden="true">
+              <svg><use href="#icon-alice"></use></svg>
+            </span>
+            <span>
+              <strong>Alice</strong>
+              <small>Local intelligence</small>
+            </span>
+          </a>
+          <button class="icon-button sidebar-close" id="sidebar-close" type="button" aria-label="Close sessions">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </div>
+
+        <button class="new-chat-button" id="new-chat" type="button">
+          <svg aria-hidden="true"><use href="#icon-plus"></use></svg>
+          <span>New conversation</span>
+          <kbd>Ctrl N</kbd>
+        </button>
+
+        <nav class="session-nav" aria-label="Recent conversations">
+          <div class="section-label">
+            <span>Recent</span>
+            <span id="session-count" aria-label="Session count">0</span>
+          </div>
+          <ul class="session-list" id="session-list"></ul>
+          <div class="session-empty" id="session-empty">
+            <svg aria-hidden="true"><use href="#icon-spark"></use></svg>
+            <p>Your conversations will live here.</p>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="engine-state">
+            <span class="status-dot" id="engine-dot" data-state="checking" aria-hidden="true"></span>
+            <span>
+              <strong id="engine-label">Checking runtime</strong>
+              <small id="engine-detail">Connecting to Alice Core…</small>
+            </span>
+          </div>
+          <span class="privacy-badge" title="Your workspace stays on this machine">Private · local</span>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="title-group">
+            <button class="icon-button mobile-menu" id="mobile-menu" type="button" aria-label="Open sessions" aria-controls="session-sidebar" aria-expanded="false">
+              <svg><use href="#icon-menu"></use></svg>
+            </button>
+            <div class="conversation-heading">
+              <h1 id="conversation-title">New conversation</h1>
+              <div class="run-state" id="run-state" data-state="idle" role="status" aria-live="polite">
+                <span></span>
+                <span id="run-state-label">Ready</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="model-controls" aria-label="Model configuration">
+            <label class="select-control provider-control">
+              <span class="sr-only">Provider</span>
+              <span class="control-kicker">Provider</span>
+              <select id="provider-select" aria-label="Provider">
+                <option value="">No provider</option>
+              </select>
+              <svg aria-hidden="true"><use href="#icon-chevron"></use></svg>
+            </label>
+            <label class="select-control model-control">
+              <span class="sr-only">Model</span>
+              <span class="control-kicker">Model</span>
+              <select id="model-select" aria-label="Model" disabled>
+                <option value="">Select a model</option>
+              </select>
+              <svg aria-hidden="true"><use href="#icon-chevron"></use></svg>
+            </label>
+            <button class="icon-button" id="refresh-models" type="button" aria-label="Refresh models" title="Refresh models">
+              <svg><use href="#icon-refresh"></use></svg>
+            </button>
+            <button class="icon-button" id="open-model-library" type="button" aria-label="Open model library" title="Model library">
+              <svg><use href="#icon-alice"></use></svg>
+            </button>
+            <button class="icon-button" id="open-workspace" type="button" aria-label="Open workspace files" title="Workspace files">
+              <svg><use href="#icon-folder"></use></svg>
+            </button>
+            <button class="icon-button" id="open-settings" type="button" aria-label="Open provider settings" title="Provider settings">
+              <svg><use href="#icon-settings"></use></svg>
+            </button>
+          </div>
+        </header>
+
+        <section class="conversation" aria-label="Conversation">
+          <div class="transcript" id="transcript" role="log" aria-live="polite" aria-relevant="additions text">
+            <div class="welcome" id="welcome">
+              <div class="welcome-orb" aria-hidden="true">
+                <span></span>
+                <svg><use href="#icon-alice"></use></svg>
+              </div>
+              <p class="eyebrow">ALICE OS · LOCAL AGENT</p>
+              <h2>What can I help you build?</h2>
+              <p class="welcome-copy">Reason across files, write code, and use approved tools—powered by the model you choose.</p>
+              <div class="quick-prompts" aria-label="Suggested prompts">
+                <button type="button" data-prompt="Inspect this workspace and explain how it is structured.">
+                  <span>Explore a codebase</span>
+                  <small>Map files, dependencies, and flows</small>
+                </button>
+                <button type="button" data-prompt="Create a clear implementation plan for my next feature.">
+                  <span>Plan a feature</span>
+                  <small>Turn an idea into concrete steps</small>
+                </button>
+                <button type="button" data-prompt="Find likely bugs in this workspace and suggest focused fixes.">
+                  <span>Review for bugs</span>
+                  <small>Inspect before changing anything</small>
+                </button>
+              </div>
+            </div>
+          </div>
+          <button class="jump-latest" id="jump-latest" type="button" hidden>
+            Jump to latest
+            <span aria-hidden="true">↓</span>
+          </button>
+        </section>
+
+        <section class="composer-zone" aria-label="Message composer">
+          <div class="activity-strip" id="activity-strip" hidden>
+            <span class="activity-spinner" aria-hidden="true"></span>
+            <span id="activity-label">Alice is thinking…</span>
+            <span class="activity-elapsed" id="activity-elapsed">0s</span>
+          </div>
+
+          <form class="composer" id="composer-form">
+            <div class="composer-toolbar">
+              <label class="agent-toggle" title="Allow Alice to request and use workspace tools">
+                <input type="checkbox" id="agent-mode" checked />
+                <span class="toggle-track" aria-hidden="true"><span></span></span>
+                <svg aria-hidden="true"><use href="#icon-spark"></use></svg>
+                <span>Agent mode</span>
+              </label>
+
+              <label class="agent-toggle" title="Speak Alice's completed replies with the local OpenVoice runtime">
+                <input type="checkbox" id="voice-output" />
+                <span class="toggle-track" aria-hidden="true"><span></span></span>
+                <svg aria-hidden="true"><use href="#icon-speaker"></use></svg>
+                <span>Speak replies</span>
+              </label>
+              <button class="voice-button" id="open-voice-studio" type="button" aria-label="Open Voice Studio" title="OpenVoice settings">
+                <svg><use href="#icon-speaker"></use></svg>
+                <span class="voice-label">Voice</span>
+              </button>
+
+              <label class="workspace-control">
+                <svg aria-hidden="true"><use href="#icon-folder"></use></svg>
+                <span class="sr-only">Workspace path</span>
+                <input id="workspace-input" type="text" autocomplete="off" spellcheck="false" placeholder="Choose a workspace path" aria-label="Workspace path" />
+              </label>
+
+              <button class="voice-button" id="voice-button" type="button" aria-label="Start voice dictation" aria-pressed="false" title="Dictate a message">
+                <svg><use href="#icon-mic"></use></svg>
+                <span class="voice-label">Dictate</span>
+              </button>
+            </div>
+
+            <div class="voice-playback" id="voice-playback" hidden>
+              <span id="voice-playback-status" role="status">Alice voice is ready.</span>
+              <audio id="voice-player" controls preload="metadata" aria-label="Alice voice playback"></audio>
+            </div>
+
+            <div class="composer-body">
+              <textarea
+                id="composer-input"
+                name="message"
+                rows="1"
+                maxlength="32000"
+                placeholder="Message Alice…"
+                aria-label="Message Alice"
+              ></textarea>
+              <div class="composer-actions">
+                <button class="stop-button" id="stop-button" type="button" hidden>
+                  <svg aria-hidden="true"><use href="#icon-stop"></use></svg>
+                  <span>Stop</span>
+                </button>
+                <button class="send-button" id="send-button" type="submit" disabled>
+                  <svg aria-hidden="true"><use href="#icon-send"></use></svg>
+                  <span class="sr-only">Send message</span>
+                </button>
+              </div>
+            </div>
+            <div class="composer-footer">
+              <span><kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line</span>
+              <span id="composer-meta">Local tools always ask before sensitive actions.</span>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="settings-dialog" aria-labelledby="settings-title">
+      <div class="modal-shell settings-shell">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">CONNECTIONS</p>
+            <h2 id="settings-title">Provider profiles</h2>
+            <p>Connect an OpenAI-compatible service or a local inference server.</p>
+          </div>
+          <button class="icon-button dialog-close" type="button" aria-label="Close settings">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+
+        <div class="settings-grid">
+          <section class="profile-section" aria-labelledby="saved-profiles-title">
+            <div class="section-heading">
+              <h3 id="saved-profiles-title">Saved profiles</h3>
+              <span id="provider-count">0</span>
+            </div>
+            <div class="profile-list" id="profile-list"></div>
+            <div class="profile-empty" id="profile-empty">
+              <p>No providers configured yet.</p>
+              <span>Add a local server or API profile to begin.</span>
+            </div>
+            <button class="secondary-button gguf-launch" id="open-gguf" type="button">
+              <svg aria-hidden="true"><use href="#icon-download"></use></svg>
+              Import a GGUF model
+            </button>
+            <button class="secondary-button gguf-launch" id="open-huggingface" type="button">
+              <svg aria-hidden="true"><use href="#icon-download"></use></svg>
+                Import from Hugging Face
+            </button>
+            <form class="model-pull-form" id="model-pull-form">
+              <label for="pull-model-name">Download from Ollama</label>
+              <div class="model-pull-row">
+                <input id="pull-model-name" name="name" type="text" required autocomplete="off" spellcheck="false" placeholder="e.g. qwen3:4b" />
+                <button class="secondary-button" id="pull-model" type="submit">Download</button>
+              </div>
+              <small>Enter an Ollama library name. Downloads can be several gigabytes.</small>
+              <div class="form-message" id="pull-model-message" role="status" aria-live="polite"></div>
+            </form>
+          </section>
+
+          <form class="provider-form" id="provider-form">
+            <div class="section-heading">
+              <h3>Add provider</h3>
+              <span>New</span>
+            </div>
+            <label>
+              <span>Profile name</span>
+              <input id="provider-name" name="name" type="text" required placeholder="My local Ollama" />
+            </label>
+            <label>
+              <span>Provider type</span>
+              <select id="provider-type" name="type" required>
+                <option value="openai_compatible">OpenAI compatible</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama</option>
+                <option value="lmstudio">LM Studio</option>
+                <option value="llamacpp">llama.cpp</option>
+              </select>
+            </label>
+            <label>
+              <span>Base URL</span>
+              <input id="provider-url" name="base_url" type="url" required placeholder="http://127.0.0.1:11434" />
+              <small>Use the API root exposed by your local or remote provider.</small>
+            </label>
+            <label>
+              <span>API key environment variable <em>optional for local providers</em></span>
+              <input id="provider-key" name="api_key_env" type="text" autocomplete="off" spellcheck="false" pattern="[A-Za-z_][A-Za-z0-9_]*" title="Use an environment variable name such as OPENAI_API_KEY" placeholder="OPENAI_API_KEY" />
+              <small>Enter the variable name only—never paste the secret itself.</small>
+            </label>
+            <div class="form-message" id="provider-form-message" role="status" aria-live="polite"></div>
+            <button class="primary-button" id="save-provider" type="submit">Save provider</button>
+          </form>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="modal compact-modal" id="gguf-dialog" aria-labelledby="gguf-title">
+      <form class="modal-shell" id="gguf-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">LOCAL MODEL</p>
+            <h2 id="gguf-title">Import GGUF</h2>
+            <p>Register a model file already stored on this machine.</p>
+          </div>
+          <button class="icon-button dialog-close" type="button" aria-label="Close GGUF import">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+        <div class="gguf-note">
+          <svg aria-hidden="true"><use href="#icon-alert"></use></svg>
+          <p>Alice registers the file path; the model remains in its current location.</p>
+        </div>
+        <label>
+          <span>GGUF file path</span>
+          <input id="gguf-path" name="path" type="text" required spellcheck="false" placeholder="D:\Models\qwen2.5-coder.gguf" />
+        </label>
+        <label>
+          <span>Display name</span>
+          <input id="gguf-name" name="name" type="text" required placeholder="Qwen 2.5 Coder 14B" />
+        </label>
+        <div class="form-message" id="gguf-form-message" role="status" aria-live="polite"></div>
+        <footer class="modal-actions">
+          <button class="secondary-button dialog-cancel" type="button">Cancel</button>
+          <button class="primary-button" id="import-gguf" type="submit">Import model</button>
+        </footer>
+      </form>
+    </dialog>
+
+      <dialog class="modal compact-modal" id="huggingface-dialog" aria-labelledby="huggingface-title">
+      <form class="modal-shell" id="huggingface-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">HUGGING FACE</p>
+              <h2 id="huggingface-title">Import from Hugging Face</h2>
+              <p>Paste a Hugging Face model link. GGUFs import into Ollama; standard model files can be downloaded for a compatible local runtime.</p>
+          </div>
+          <button class="icon-button dialog-close" type="button" aria-label="Close Hugging Face import">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+        <div class="gguf-note">
+          <svg aria-hidden="true"><use href="#icon-alert"></use></svg>
+            <p>Inspect the repository first. A complete model download can be several gigabytes and standard Transformers models need their own runtime.</p>
+        </div>
+        <label>
+            <span>Model link or repository</span>
+            <input id="huggingface-repository" name="repository" type="text" required autocomplete="off" spellcheck="false" placeholder="https://huggingface.co/Qwen/Qwen2.5-Omni-3B" />
+          <small>For gated or private models, set <code>HF_TOKEN</code> in <code>.env</code> before starting Alice.</small>
+        </label>
+          <label>
+            <span>Revision</span>
+            <input id="huggingface-revision" name="revision" type="text" value="main" required autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            <span>Hugging Face access token <em>optional</em></span>
+            <input id="huggingface-token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="hf_…" />
+            <small>Use this for faster authenticated downloads or gated models. It is sent only to Alice's local server and is never saved.</small>
+          </label>
+          <section class="model-inspection" id="huggingface-inspection" hidden aria-live="polite">
+            <div>
+              <span>Download size</span>
+              <strong id="huggingface-download-size">—</strong>
+            </div>
+            <div>
+              <span>Model weights</span>
+              <strong id="huggingface-weight-size">—</strong>
+            </div>
+            <div>
+              <span>Est. GPU memory</span>
+              <strong id="huggingface-gpu-estimate">—</strong>
+            </div>
+            <div>
+              <span>Local GPU</span>
+              <strong id="huggingface-gpu-fit">—</strong>
+            </div>
+          </section>
+          <label>
+            <span>GGUF / quantized download</span>
+            <select id="huggingface-file" name="filename" required disabled>
+              <option value="">Search a repository first</option>
+            </select>
+        </label>
+        <label>
+          <span>Display name <em>optional</em></span>
+          <input id="huggingface-name" name="name" type="text" autocomplete="off" placeholder="Use the GGUF file name" />
+        </label>
+        <div class="form-message" id="huggingface-form-message" role="status" aria-live="polite"></div>
+          <footer class="modal-actions">
+            <button class="secondary-button" id="huggingface-search" type="submit">Inspect model</button>
+            <button class="secondary-button" id="huggingface-download" type="button" disabled>Download model files</button>
+            <button class="primary-button" id="huggingface-import" type="button" disabled>Download and import</button>
+        </footer>
+      </form>
+      </dialog>
+
+      <dialog class="modal workspace-modal" id="workspace-dialog" aria-labelledby="workspace-title">
+        <section class="modal-shell workspace-shell">
+          <header class="modal-header">
+            <div>
+              <p class="eyebrow">WORKSPACE</p>
+              <h2 id="workspace-title">Files and changes</h2>
+              <p id="workspace-root">Choose a workspace path in the composer to browse its files.</p>
+            </div>
+            <button class="icon-button dialog-close" type="button" aria-label="Close workspace">
+              <svg><use href="#icon-close"></use></svg>
+            </button>
+          </header>
+          <div class="workspace-status">
+            <div>
+              <span>Git</span>
+              <strong id="workspace-git-branch">Checking…</strong>
+            </div>
+            <div>
+              <span>Changes</span>
+              <strong id="workspace-change-count">—</strong>
+            </div>
+            <button class="secondary-button" id="refresh-workspace" type="button">Refresh</button>
+          </div>
+          <div class="workspace-browser">
+            <section class="workspace-files" aria-label="Workspace files">
+              <div class="workspace-path-row">
+                <button class="text-button" id="workspace-up" type="button" disabled>↑ Up</button>
+                <code id="workspace-path">.</code>
+              </div>
+              <div class="workspace-entry-list" id="workspace-entry-list" role="list"></div>
+              <div class="workspace-changes" id="workspace-changes" hidden></div>
+            </section>
+            <section class="workspace-preview-pane" aria-label="File preview">
+              <div class="workspace-preview-heading">
+                <strong id="workspace-preview-title">Select a file</strong>
+                <button class="secondary-button" id="add-file-context" type="button" disabled>Add to chat</button>
+              </div>
+              <pre id="workspace-preview">Read-only previews stay inside the selected workspace.</pre>
+            </section>
+          </div>
+        </section>
+      </dialog>
+
+      <dialog class="modal model-library-modal" id="model-library-dialog" aria-labelledby="model-library-title">
+        <section class="modal-shell model-library-shell">
+          <header class="modal-header">
+            <div>
+              <p class="eyebrow">LOCAL MODELS</p>
+              <h2 id="model-library-title">Model library</h2>
+              <p id="model-library-summary">Checking models stored on this machine…</p>
+            </div>
+            <button class="icon-button dialog-close" type="button" aria-label="Close model library">
+              <svg><use href="#icon-close"></use></svg>
+            </button>
+          </header>
+          <div class="model-library-actions">
+            <span id="model-library-total">—</span>
+            <button class="secondary-button" id="refresh-model-library" type="button">Refresh library</button>
+          </div>
+          <section class="model-library-section" aria-labelledby="ollama-library-heading">
+            <div class="section-heading">
+              <h3 id="ollama-library-heading">Ready in Ollama</h3>
+              <span id="ollama-library-count">0</span>
+            </div>
+            <div class="model-library-list" id="ollama-library-list"></div>
+          </section>
+          <section class="model-library-section" aria-labelledby="huggingface-library-heading">
+            <div class="section-heading">
+              <h3 id="huggingface-library-heading">Downloaded from Hugging Face</h3>
+              <span id="huggingface-library-count">0</span>
+            </div>
+            <div class="model-library-list" id="huggingface-library-list"></div>
+          </section>
+        </section>
+      </dialog>
+
+      <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <dialog class="modal compact-modal" id="voice-studio-dialog" aria-labelledby="voice-studio-title">
+      <div class="modal-shell voice-studio-shell">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">LOCAL VOICE</p>
+            <h2 id="voice-studio-title">Voice Studio</h2>
+            <p>Configure spoken replies and optionally use a reference recording you are allowed to use.</p>
+          </div>
+          <button class="icon-button dialog-close" type="button" aria-label="Close Voice Studio">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+        <div class="voice-runtime-state" id="voice-runtime-state" role="status" aria-live="polite"></div>
+        <label>
+          <span>Base voice</span>
+          <select id="voice-speaker">
+            <option value="OPENVOICE-FEMALE" selected>Alice female — OpenVoice GPU (recommended)</option>
+            <option value="EN-Newest">OpenVoice English — GPU</option>
+            <option value="WINDOWS-ZIRA">Basic female — Windows fallback</option>
+          </select>
+        </label>
+        <label>
+          <span>Speech speed</span>
+          <select id="voice-speed">
+            <option value="0.85">Calm · 0.85×</option>
+            <option value="1" selected>Natural · 1.0×</option>
+            <option value="1.15">Fast · 1.15×</option>
+          </select>
+        </label>
+        <section class="voice-reference-section" aria-labelledby="voice-reference-title">
+          <div class="section-heading"><h3 id="voice-reference-title">Optional voice reference</h3><span>Permission required</span></div>
+          <p>Use a clean, single-speaker recording only when you have permission. It remains on this computer.</p>
+          <div class="model-pull-row">
+            <input id="voice-reference-file" type="file" accept="audio/wav,audio/mpeg,audio/mp4,audio/flac,audio/ogg" />
+            <button class="secondary-button" id="upload-voice-reference" type="button">Add</button>
+          </div>
+          <select id="voice-reference-select">
+            <option value="">No cloning — use the base voice</option>
+          </select>
+        </section>
+        <div class="form-message" id="voice-studio-message" role="status" aria-live="polite"></div>
+        <footer class="modal-actions">
+          <button class="secondary-button" id="test-voice" type="button">Test voice</button>
+          <button class="primary-button" id="save-voice-settings" type="button">Save voice settings</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message-avatar" aria-hidden="true"></div>
+        <div class="message-column">
+          <header>
+            <strong class="message-author"></strong>
+            <time class="message-time"></time>
+          </header>
+          <div class="message-content"></div>
+          <button class="copy-message" type="button" aria-label="Copy message">
+            <svg aria-hidden="true"><use href="#icon-copy"></use></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+      </article>
+    </template>
+
+    <template id="tool-template">
+      <article class="tool-card">
+        <div class="tool-icon" aria-hidden="true"><svg><use href="#icon-tool"></use></svg></div>
+        <div class="tool-main">
+          <header>
+            <div>
+              <span class="tool-kicker">TOOL REQUEST</span>
+              <strong class="tool-name"></strong>
+            </div>
+            <span class="tool-status"></span>
+          </header>
+          <p class="tool-summary"></p>
+          <pre class="tool-arguments"></pre>
+          <div class="approval-actions">
+            <button class="deny-button" type="button">Deny</button>
+            <button class="approve-button" type="button">
+              <svg aria-hidden="true"><use href="#icon-check"></use></svg>
+              Approve once
+            </button>
+          </div>
+          <div class="tool-result" hidden></div>
+        </div>
+      </article>
+    </template>
+  </body>
+</html>

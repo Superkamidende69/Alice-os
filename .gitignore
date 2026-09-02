@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.env
+.alice-data/
+*.log
+
+# Optional local runtimes and their downloaded models/checkpoints. Recreate
+# these with Alice's setup scripts; never commit them to the source repository.
+tools/
+*.gguf
+*.safetensors
+*.bin
+*.pth
+*.pt
