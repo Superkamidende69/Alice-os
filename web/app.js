@@ -43,10 +43,12 @@
     voicePlayback: $("#voice-playback"),
     voicePlaybackStatus: $("#voice-playback-status"),
     voicePlayer: $("#voice-player"),
+    voiceDownload: $("#voice-download"),
     voiceStudioDialog: $("#voice-studio-dialog"),
     voiceRuntimeState: $("#voice-runtime-state"),
     voiceSpeaker: $("#voice-speaker"),
     voiceSpeed: $("#voice-speed"),
+    voiceTestText: $("#voice-test-text"),
     voiceReferenceFile: $("#voice-reference-file"),
     voiceReferenceSelect: $("#voice-reference-select"),
     uploadVoiceReference: $("#upload-voice-reference"),
@@ -622,6 +624,8 @@
     player.volume = 1;
     player.muted = false;
     player.load();
+    els.voiceDownload.href = url;
+    els.voiceDownload.hidden = false;
     els.voicePlaybackStatus.textContent = label;
     els.voicePlayback.hidden = false;
     try {
@@ -718,7 +722,7 @@
       const response = await api("/api/voice/synthesize", {
         method: "POST",
         body: {
-          text: "Hello. Alice voice systems are online.",
+          text: els.voiceTestText.value.trim() || "Hello. Alice voice systems are online.",
           speaker: els.voiceSpeaker.value,
           speed: Number(els.voiceSpeed.value),
           reference: els.voiceReferenceSelect.value,

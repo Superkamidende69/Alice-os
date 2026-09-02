@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=openvoice-female-3" />
-    <script src="/static/app.js?v=openvoice-female-3" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=voice-studio-4" />
+    <script src="/static/app.js?v=voice-studio-4" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -252,6 +252,7 @@
             <div class="voice-playback" id="voice-playback" hidden>
               <span id="voice-playback-status" role="status">Alice voice is ready.</span>
               <audio id="voice-player" controls preload="metadata" aria-label="Alice voice playback"></audio>
+              <a class="secondary-button" id="voice-download" href="#" download hidden>Download WAV</a>
             </div>
 
             <div class="composer-body">
@@ -567,6 +568,11 @@
             <option value="1" selected>Natural · 1.0×</option>
             <option value="1.15">Fast · 1.15×</option>
           </select>
+        </label>
+        <label>
+          <span>Studio preview text</span>
+          <textarea id="voice-test-text" rows="3" maxlength="500">Hello. Alice voice systems are online.</textarea>
+          <small>Use this to audition a voice or reference without sending a chat message.</small>
         </label>
         <section class="voice-reference-section" aria-labelledby="voice-reference-title">
           <div class="section-heading"><h3 id="voice-reference-title">Optional voice reference</h3><span>Permission required</span></div>
