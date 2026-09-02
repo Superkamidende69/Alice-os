@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=voice-meters-2" />
-    <script src="/static/app.js?v=voice-meters-2" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=voice-meters-persistent-3" />
+    <script src="/static/app.js?v=voice-meters-persistent-3" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -175,6 +175,10 @@
             <button class="icon-button" id="open-settings" type="button" aria-label="Open provider settings" title="Provider settings">
               <svg><use href="#icon-settings"></use></svg>
             </button>
+          </div>
+          <div class="persistent-metric" aria-live="polite" title="Measured model output speed">
+            <span>Output</span>
+            <strong id="persistent-token-speed">— tok/s</strong>
           </div>
         </header>
 

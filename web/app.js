@@ -26,6 +26,7 @@
     openModelLibrary: $("#open-model-library"),
     openWorkspace: $("#open-workspace"),
     openSettings: $("#open-settings"),
+    persistentTokenSpeed: $("#persistent-token-speed"),
     transcript: $("#transcript"),
     welcome: $("#welcome"),
     jumpLatest: $("#jump-latest"),
@@ -684,7 +685,9 @@
   function updateTokenSpeed() {
     if (!state.tokenStartedAt || !els.activityTokenSpeed) return;
     const seconds = Math.max(0.1, (Date.now() - state.tokenStartedAt) / 1000);
-    els.activityTokenSpeed.textContent = `${(state.tokenCount / seconds).toFixed(1)} tok/s`;
+    const speed = (state.tokenCount / seconds).toFixed(1);
+    els.activityTokenSpeed.textContent = `${speed} tok/s`;
+    els.persistentTokenSpeed.textContent = `${speed} tok/s`;
   }
 
   async function speakReply(text) {

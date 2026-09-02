@@ -1300,6 +1300,26 @@ kbd {
   white-space: nowrap;
 }
 
+.persistent-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted-2);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.persistent-metric strong {
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
 .agent-toggle {
   display: inline-flex;
   height: 30px;
