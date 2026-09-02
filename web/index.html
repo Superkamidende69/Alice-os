@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=voice-preview-7" />
-    <script src="/static/app.js?v=voice-preview-7" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=workspace-review-8" />
+    <script src="/static/app.js?v=workspace-review-8" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -500,7 +500,10 @@
             <section class="workspace-preview-pane" aria-label="File preview">
               <div class="workspace-preview-heading">
                 <strong id="workspace-preview-title">Select a file</strong>
-                <button class="secondary-button" id="add-file-context" type="button" disabled>Add to chat</button>
+                <div>
+                  <button class="secondary-button" id="view-workspace-diff" type="button" disabled>View diff</button>
+                  <button class="secondary-button" id="add-file-context" type="button" disabled>Add to chat</button>
+                </div>
               </div>
               <pre id="workspace-preview">Read-only previews stay inside the selected workspace.</pre>
             </section>

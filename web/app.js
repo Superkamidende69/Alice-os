@@ -76,6 +76,7 @@
     workspaceChanges: $("#workspace-changes"),
     workspacePreviewTitle: $("#workspace-preview-title"),
     workspacePreview: $("#workspace-preview"),
+    viewWorkspaceDiff: $("#view-workspace-diff"),
     addFileContext: $("#add-file-context"),
     modelLibraryDialog: $("#model-library-dialog"),
     modelLibrarySummary: $("#model-library-summary"),
@@ -160,6 +161,7 @@
     workspacePath: ".",
     workspaceEntries: [],
     workspacePreview: null,
+    workspaceSelectedPath: "",
     workspaceRoot: "",
   };
 
@@ -1580,7 +1582,9 @@
   async function loadWorkspace(path = ".") {
     const workspace = activeWorkspace();
     state.workspacePreview = null;
+    state.workspaceSelectedPath = "";
     els.addFileContext.disabled = true;
+    els.viewWorkspaceDiff.disabled = true;
     els.workspacePreviewTitle.textContent = "Select a file";
     els.workspacePreview.textContent = "Loading workspace…";
     if (!workspace) {
@@ -1623,11 +1627,36 @@
       const parameters = new URLSearchParams({ workspace, path });
       const file = await api(`/api/workspace/read?${parameters.toString()}`);
       state.workspacePreview = file;
+      state.workspaceSelectedPath = path;
       els.workspacePreview.textContent = String(firstValue(file, ["content"], ""));
       els.addFileContext.disabled = !els.workspacePreview.textContent;
+      els.viewWorkspaceDiff.disabled = false;
     } catch (error) {
       state.workspacePreview = null;
       els.workspacePreview.textContent = error.message;
+    }
+  }
+
+  async function previewWorkspaceDiff(path = state.workspaceSelectedPath) {
+    const workspace = activeWorkspace();
+    if (!workspace || !path) return;
+    els.workspacePreviewTitle.textContent = `Diff · ${path}`;
+    els.workspacePreview.textContent = "Loading Git diff…";
+    els.addFileContext.disabled = true;
+    els.viewWorkspaceDiff.disabled = true;
+    try {
+      const parameters = new URLSearchParams({ workspace, path });
+      const result = await api(`/api/workspace/diff?${parameters.toString()}`);
+      const diff = String(firstValue(result, ["diff"], ""));
+      state.workspaceSelectedPath = path;
+      state.workspacePreview = { path: `${path} (Git diff)`, content: diff };
+      els.workspacePreview.textContent = diff || "No tracked changes for this file. Untracked files do not have a Git diff yet.";
+      els.addFileContext.disabled = !diff;
+    } catch (error) {
+      state.workspacePreview = null;
+      els.workspacePreview.textContent = error.message;
+    } finally {
+      els.viewWorkspaceDiff.disabled = false;
     }
   }
 
@@ -2110,8 +2139,9 @@
     });
     els.workspaceChanges.addEventListener("click", (event) => {
       const changedFile = event.target.closest(".workspace-change");
-      if (changedFile?.dataset.path) previewWorkspaceFile(changedFile.dataset.path);
+      if (changedFile?.dataset.path) previewWorkspaceDiff(changedFile.dataset.path);
     });
+    els.viewWorkspaceDiff.addEventListener("click", () => previewWorkspaceDiff());
     els.addFileContext.addEventListener("click", addWorkspaceFileToChat);
     els.openSettings.addEventListener("click", () => {
       renderProfiles();

@@ -168,6 +168,26 @@ async def _workspace_git_status(workspace: str) -> dict[str, Any]:
     return {"available": True, "branch": branch, "changes": changes, "truncated": len(lines) > 101}
 
 
+async def _workspace_git_diff(workspace: str, path: str) -> dict[str, Any]:
+    relative = Path(path)
+    if not path or relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(400, "Diff path must stay inside the selected workspace")
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "git", "-C", workspace, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+    except (OSError, TimeoutError) as error:
+        raise HTTPException(400, "Git diff is unavailable for this workspace") from error
+    if process.returncode != 0:
+        detail = stderr.decode("utf-8", errors="replace").strip() or "Git could not read that diff"
+        raise HTTPException(400, detail)
+    diff = stdout.decode("utf-8", errors="replace")
+    return {"path": path, "diff": diff[:60_000], "truncated": len(diff) > 60_000}
+
+
 def create_app(data_dir: Path | None = None) -> FastAPI:
     config = ConfigStore(data_dir)
     storage = Storage(config.data_dir / "alice.db")
@@ -406,6 +426,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.get("/api/workspace/git", dependencies=[Depends(require_session)])
     async def workspace_git(workspace: str) -> dict[str, Any]:
         return await _workspace_git_status(_resolve_workspace(workspace))
+
+    @app.get("/api/workspace/diff", dependencies=[Depends(require_session)])
+    async def workspace_diff(workspace: str, path: str) -> dict[str, Any]:
+        return await _workspace_git_diff(_resolve_workspace(workspace), path)
 
     @app.post("/api/gguf/import", dependencies=[Depends(require_session)])
     async def import_local_gguf(body: GGUFImport) -> dict[str, Any]:
