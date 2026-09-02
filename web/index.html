@@ -9,8 +9,8 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=voice-meters-persistent-3" />
-    <script src="/static/app.js?v=voice-meters-persistent-3" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=voice-meters-persistent-4" />
+    <script src="/static/app.js?v=voice-meters-persistent-4" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -176,10 +176,6 @@
               <svg><use href="#icon-settings"></use></svg>
             </button>
           </div>
-          <div class="persistent-metric" aria-live="polite" title="Measured model output speed">
-            <span>Output</span>
-            <strong id="persistent-token-speed">— tok/s</strong>
-          </div>
         </header>
 
         <section class="conversation" aria-label="Conversation">
@@ -284,6 +280,7 @@
             <div class="composer-footer">
               <span><kbd>Enter</kbd> send · <kbd>Shift Enter</kbd> new line</span>
               <span id="composer-meta">Local tools always ask before sensitive actions.</span>
+              <span class="persistent-metric" aria-live="polite" title="Measured model output speed"><span>Output speed</span><strong id="persistent-token-speed">Waiting</strong></span>
             </div>
           </form>
         </section>
