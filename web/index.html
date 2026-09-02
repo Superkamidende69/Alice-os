@@ -215,6 +215,7 @@
             <span class="activity-spinner" aria-hidden="true"></span>
             <span id="activity-label">Alice is thinking…</span>
             <span class="activity-elapsed" id="activity-elapsed">0s</span>
+            <span class="activity-metric" id="activity-token-speed">0 tok/s</span>
           </div>
 
           <form class="composer" id="composer-form">
@@ -252,6 +253,7 @@
             <div class="voice-playback" id="voice-playback" hidden>
               <span id="voice-playback-status" role="status">Alice voice is ready.</span>
               <audio id="voice-player" controls preload="metadata" aria-label="Alice voice playback"></audio>
+              <label class="voice-peak" title="Live audio peak"><span>Peak</span><meter id="voice-peak-meter" min="0" max="1" low="0.2" high="0.8" optimum="0.45" value="0">0%</meter></label>
               <a class="secondary-button" id="voice-download" href="#" download hidden>Download WAV</a>
             </div>
 

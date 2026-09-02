@@ -32,6 +32,7 @@
     activityStrip: $("#activity-strip"),
     activityLabel: $("#activity-label"),
     activityElapsed: $("#activity-elapsed"),
+    activityTokenSpeed: $("#activity-token-speed"),
     composerForm: $("#composer-form"),
     composerInput: $("#composer-input"),
     composerMeta: $("#composer-meta"),
@@ -43,6 +44,7 @@
     voicePlayback: $("#voice-playback"),
     voicePlaybackStatus: $("#voice-playback-status"),
     voicePlayer: $("#voice-player"),
+    voicePeakMeter: $("#voice-peak-meter"),
     voiceDownload: $("#voice-download"),
     voiceStudioDialog: $("#voice-studio-dialog"),
     voiceRuntimeState: $("#voice-runtime-state"),
@@ -140,6 +142,12 @@
     listening: false,
     activityStartedAt: 0,
     activityTimer: null,
+    tokenCount: 0,
+    tokenStartedAt: 0,
+    audioContext: null,
+    audioAnalyser: null,
+    audioSource: null,
+    peakFrame: null,
     submitting: false,
     huggingFaceFiles: [],
     huggingFaceDetails: null,
@@ -630,12 +638,53 @@
     els.voicePlayback.hidden = false;
     try {
       await player.play();
+      startPeakMeter();
       els.voicePlaybackStatus.textContent = "Alice is speaking.";
       return true;
     } catch {
       els.voicePlaybackStatus.textContent = "Alice voice is ready — press Play to hear it.";
       return false;
     }
+  }
+
+  function startPeakMeter() {
+    if (!els.voicePeakMeter) return;
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      if (!state.audioContext) {
+        state.audioContext = new AudioContext();
+        state.audioAnalyser = state.audioContext.createAnalyser();
+        state.audioAnalyser.fftSize = 256;
+        state.audioSource = state.audioContext.createMediaElementSource(els.voicePlayer);
+        state.audioSource.connect(state.audioAnalyser);
+        state.audioAnalyser.connect(state.audioContext.destination);
+      }
+      state.audioContext.resume().catch(() => {});
+      cancelAnimationFrame(state.peakFrame);
+      const samples = new Uint8Array(state.audioAnalyser.fftSize);
+      const draw = () => {
+        if (!state.audioAnalyser || els.voicePlayer.paused) {
+          els.voicePeakMeter.value = 0;
+          state.peakFrame = null;
+          return;
+        }
+        state.audioAnalyser.getByteTimeDomainData(samples);
+        let peak = 0;
+        for (const sample of samples) peak = Math.max(peak, Math.abs(sample - 128) / 128);
+        els.voicePeakMeter.value = Math.min(1, peak);
+        state.peakFrame = requestAnimationFrame(draw);
+      };
+      state.peakFrame = requestAnimationFrame(draw);
+    } catch {
+      // Some browsers block Web Audio analysis; the native audio player still works.
+    }
+  }
+
+  function updateTokenSpeed() {
+    if (!state.tokenStartedAt || !els.activityTokenSpeed) return;
+    const seconds = Math.max(0.1, (Date.now() - state.tokenStartedAt) / 1000);
+    els.activityTokenSpeed.textContent = `${(state.tokenCount / seconds).toFixed(1)} tok/s`;
   }
 
   async function speakReply(text) {
@@ -969,6 +1018,9 @@
 
   function startActivity(label) {
     if (!state.activityStartedAt) state.activityStartedAt = Date.now();
+    state.tokenCount = 0;
+    state.tokenStartedAt = 0;
+    els.activityTokenSpeed.textContent = "0 tok/s";
     els.activityLabel.textContent = label;
     els.activityStrip.hidden = false;
     els.stopButton.hidden = false;
@@ -1016,6 +1068,9 @@
         state.streamingText = "";
       }
       state.streamingText += token;
+      state.tokenCount += Math.max(1, Math.ceil(token.length / 4));
+      if (!state.tokenStartedAt) state.tokenStartedAt = Date.now();
+      updateTokenSpeed();
       updateMessageNode(state.streamingElement, state.streamingText, true);
       if (stayPinned) scrollToLatest(false);
     });
@@ -1228,10 +1283,13 @@
     state.streamingText = "";
     state.activeRun = null;
     state.activityStartedAt = 0;
+    state.tokenCount = 0;
+    state.tokenStartedAt = 0;
     clearInterval(state.activityTimer);
     state.activityTimer = null;
     els.activityStrip.hidden = true;
     els.activityElapsed.textContent = "0s";
+    els.activityTokenSpeed.textContent = "0 tok/s";
     els.stopButton.hidden = true;
     els.stopButton.disabled = false;
     setRunState(stateName, label);
@@ -1928,6 +1986,11 @@
     restoreVoiceSettings();
     els.voiceOutput.addEventListener("change", () => {
       setStored("voice-output", els.voiceOutput.checked ? "true" : "false");
+    });
+    els.voicePlayer.addEventListener("play", startPeakMeter);
+    els.voicePlayer.addEventListener("pause", () => {
+      if (els.voicePeakMeter) els.voicePeakMeter.value = 0;
+      cancelAnimationFrame(state.peakFrame);
     });
     els.openVoiceStudio.addEventListener("click", () => {
       openDialog(els.voiceStudioDialog);

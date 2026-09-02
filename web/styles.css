@@ -1278,6 +1278,28 @@ kbd {
   accent-color: var(--accent);
 }
 
+.voice-peak {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-2);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.voice-peak meter {
+  width: 58px;
+  height: 8px;
+  accent-color: var(--green);
+}
+
+.activity-metric {
+  margin-left: auto;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .agent-toggle {
   display: inline-flex;
   height: 30px;
