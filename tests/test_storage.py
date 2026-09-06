@@ -82,3 +82,20 @@ def test_unknown_session_mutations_raise(storage: Storage) -> None:
         storage.update_session("missing", title="Nope")
     with pytest.raises(KeyError, match="Unknown session"):
         storage.delete_session("missing")
+
+
+def test_global_memories_dedupe_search_and_delete(storage: Storage) -> None:
+    first = storage.add_global_memory("User prefers concise answers")
+    duplicate = storage.add_global_memory("user prefers concise answers")
+    assert duplicate["id"] == first["id"]
+    matches = storage.search_global_memories("CONCISE")
+    assert len(matches) == 1
+    assert matches[0]["id"] == first["id"]
+    assert matches[0]["content"] == duplicate["content"]
+    assert matches[0]["importance"] == 3
+    assert storage.search_global_memories("hello there") == []
+
+    storage.delete_global_memory(first["id"])
+    assert storage.list_global_memories() == []
+    with pytest.raises(KeyError, match="Unknown memory"):
+        storage.delete_global_memory(first["id"])

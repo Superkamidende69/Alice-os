@@ -12,11 +12,17 @@ license = { text = "MIT" }
 authors = [{ name = "Alice OS contributors" }]
 dependencies = [
   "fastapi>=0.115,<1",
+  "cryptography>=43,<47",
   "huggingface_hub>=0.32,<2",
+  "psutil>=6,<8",
   "httpx>=0.28,<1",
   "pydantic>=2.10,<3",
   "python-multipart>=0.0.20,<1",
+  "PyYAML>=6.0,<7",
   "uvicorn>=0.34,<1",
+  "websockets>=15,<17",
+  "zeroconf>=0.136,<1",
+  "webrtcvad-wheels>=2.0.14,<3",
 ]
 
 [project.optional-dependencies]

@@ -2,15 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#090b0f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <script>
+      const phoneUserAgent = /Android|webOS|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      const touchPhone = navigator.maxTouchPoints > 0;
+      document.documentElement.dataset.aliceMobile = phoneUserAgent || touchPhone ? "true" : "false";
+      const setAliceViewport = () => {
+        const viewport = window.visualViewport;
+        document.documentElement.style.setProperty("--alice-viewport-width", `${viewport?.width || window.innerWidth}px`);
+        document.documentElement.style.setProperty("--alice-viewport-height", `${viewport?.height || window.innerHeight}px`);
+      };
+      setAliceViewport();
+      window.visualViewport?.addEventListener("resize", setAliceViewport);
+      window.addEventListener("resize", setAliceViewport);
+    </script>
     <meta
       name="description"
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=custom-skills-10" />
-    <script src="/static/app.js?v=custom-skills-10" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=alice-voice-output-1" />
+    <script src="/static/voice-input.js?v=voice-turns-1" defer></script>
+    <script src="/static/app.js?v=alice-model-controls-2" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#composer-input">Skip to message composer</a>
@@ -22,6 +37,10 @@
       </symbol>
       <symbol id="icon-plus" viewBox="0 0 24 24">
         <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="icon-chat" viewBox="0 0 24 24">
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.8 4v-4.1A2.5 2.5 0 0 1 4 12.5v-7Z" />
+        <path d="M8 8h8M8 11h5" />
       </symbol>
       <symbol id="icon-menu" viewBox="0 0 24 24">
         <path d="M4 7h16M4 12h16M4 17h16" />
@@ -82,7 +101,29 @@
       </symbol>
     </svg>
 
-    <div class="app-shell" id="app-shell">
+    <main class="auth-page" id="network-login-page" hidden aria-labelledby="network-login-title">
+      <section class="auth-card">
+        <div class="auth-brand" aria-hidden="true">
+          <span class="brand-mark"><svg><use href="#icon-alice"></use></svg></span>
+          <span>Alice OS</span>
+        </div>
+        <header class="auth-header">
+          <p class="eyebrow">PRIVATE ACCESS</p>
+          <h1 id="network-login-title">Sign in to Alice</h1>
+          <p id="network-login-intro">This Alice instance is protected by a local network login.</p>
+        </header>
+        <form id="network-login-form">
+          <label><span>Username</span><input id="network-username" autocomplete="username" required /></label>
+          <label><span>Password</span><input id="network-password" type="password" autocomplete="current-password" minlength="12" required /></label>
+          <label id="network-password-confirm-label"><span>Confirm password</span><input id="network-password-confirm" type="password" autocomplete="new-password" minlength="12" /></label>
+          <div class="form-message" id="network-login-message" role="status" aria-live="polite"></div>
+          <button class="auth-submit" id="network-login-submit" type="submit">Sign in</button>
+        </form>
+        <p class="auth-note"><svg aria-hidden="true"><use href="#icon-check"></use></svg><span>Your credentials stay on this Alice host.</span></p>
+      </section>
+    </main>
+
+    <div class="app-shell" id="app-shell" hidden>
       <button class="sidebar-scrim" id="sidebar-scrim" type="button" aria-label="Close sessions"></button>
 
       <aside class="sidebar" id="session-sidebar" aria-label="Conversation sessions">
@@ -109,14 +150,45 @@
 
         <nav class="session-nav" aria-label="Recent conversations">
           <div class="section-label">
-            <span>Recent</span>
+            <span>Chats</span>
             <span id="session-count" aria-label="Session count">0</span>
           </div>
-          <ul class="session-list" id="session-list"></ul>
+          <div class="session-picker-row">
+            <label class="session-picker">
+              <span class="sr-only">Choose a conversation</span>
+              <select id="session-select" aria-label="Choose a conversation">
+                <option value="">No conversations yet</option>
+              </select>
+              <svg aria-hidden="true"><use href="#icon-chevron"></use></svg>
+            </label>
+            <button class="session-delete-current" id="session-delete-current" type="button" aria-label="Delete selected conversation" title="Delete selected conversation" disabled>
+              <svg aria-hidden="true"><use href="#icon-trash"></use></svg>
+            </button>
+          </div>
           <div class="session-empty" id="session-empty">
             <svg aria-hidden="true"><use href="#icon-spark"></use></svg>
             <p>Your conversations will live here.</p>
           </div>
+        </nav>
+
+        <nav class="sidebar-pages" aria-label="Alice pages">
+          <div class="section-label"><span>Workspace</span></div>
+          <a class="sidebar-page" href="/" aria-current="page">
+            <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-chat"></use></svg></span>
+            <span><strong>Chat</strong><small>Conversations with Alice</small></span>
+          </a>
+          <a class="sidebar-page" href="/models">
+            <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-alice"></use></svg></span>
+            <span><strong>Models</strong><small>Manage downloads and hardware fit</small></span>
+          </a>
+          <a class="sidebar-page" href="/cluster">
+            <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-alice"></use></svg></span>
+            <span><strong>Cluster</strong><small>Connect inference workers</small></span>
+          </a>
+          <a class="sidebar-page" href="/voice">
+            <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-speaker"></use></svg></span>
+            <span><strong>Voice</strong><small>Voice Studio and speech pipeline</small></span>
+          </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -149,7 +221,8 @@
           <div class="model-controls" aria-label="Model configuration">
             <label class="select-control provider-control">
               <span class="sr-only">Provider</span>
-              <span class="control-kicker">Provider</span>
+              <span class="control-kicker">Backend (auto)</span>
+              <span class="mobile-select-value" id="provider-mobile-value">No provider</span>
               <select id="provider-select" aria-label="Provider">
                 <option value="">No provider</option>
               </select>
@@ -158,6 +231,7 @@
             <label class="select-control model-control">
               <span class="sr-only">Model</span>
               <span class="control-kicker">Model</span>
+              <span class="mobile-select-value" id="model-mobile-value">Select a model</span>
               <select id="model-select" aria-label="Model" disabled>
                 <option value="">Select a model</option>
               </select>
@@ -166,7 +240,7 @@
             <button class="icon-button" id="refresh-models" type="button" aria-label="Refresh models" title="Refresh models">
               <svg><use href="#icon-refresh"></use></svg>
             </button>
-            <button class="icon-button" id="open-model-library" type="button" aria-label="Open model library" title="Model library">
+            <button class="icon-button" id="open-model-library" type="button" aria-label="Open Alice model manager" title="Alice model manager">
               <svg><use href="#icon-alice"></use></svg>
             </button>
             <button class="icon-button" id="open-workspace" type="button" aria-label="Open workspace files" title="Workspace files">
@@ -235,7 +309,7 @@
               </label>
               <button class="skill-manage" id="open-skills" type="button" title="Manage agent skills">Manage</button>
 
-              <label class="agent-toggle" title="Speak Alice's completed replies with the local OpenVoice runtime">
+              <label class="agent-toggle" title="Speak Alice's replies as phrases become ready with local OpenVoice">
                 <input type="checkbox" id="voice-output" />
                 <span class="toggle-track" aria-hidden="true"><span></span></span>
                 <svg aria-hidden="true"><use href="#icon-speaker"></use></svg>
@@ -245,6 +319,7 @@
                 <svg><use href="#icon-speaker"></use></svg>
                 <span class="voice-label">Voice</span>
               </button>
+              <button id="stop-listening" class="voice-button" type="button" hidden>Mic on · Turn off</button>
 
               <label class="workspace-control">
                 <svg aria-hidden="true"><use href="#icon-folder"></use></svg>
@@ -261,8 +336,8 @@
             <div class="voice-playback" id="voice-playback" hidden>
               <span id="voice-playback-status" role="status">Alice voice is ready.</span>
               <audio id="voice-player" controls preload="metadata" aria-label="Alice voice playback"></audio>
+              <button id="stop-voice" type="button" class="voice-button">Stop speaking</button>
               <label class="voice-peak" title="Live audio peak"><span>Peak</span><meter id="voice-peak-meter" min="0" max="1" low="0.2" high="0.8" optimum="0.45" value="0">0%</meter></label>
-              <a class="secondary-button" id="voice-download" href="#" download hidden>Download WAV</a>
             </div>
 
             <div class="composer-body">
@@ -293,7 +368,132 @@
           </form>
         </section>
       </main>
+
+      <aside class="voice-output-panel" id="voice-output-panel" aria-label="Voice output">
+        <header class="voice-output-header">
+          <div>
+            <p class="eyebrow">VOICE OUTPUT</p>
+            <h2>What Alice is saying</h2>
+          </div>
+          <span class="voice-output-live" id="voice-output-live" data-state="standby">Standby</span>
+        </header>
+
+        <section class="voice-output-current" aria-live="polite">
+          <div class="voice-output-current-label">
+            <span class="voice-output-pulse" aria-hidden="true"></span>
+            <span id="voice-output-current-label">Ready</span>
+          </div>
+          <p id="voice-output-current-text">Turn on Speak replies to mirror Alice’s voice here.</p>
+        </section>
+
+        <section class="voice-output-section" aria-labelledby="voice-output-queue-title">
+          <div class="section-heading">
+            <h3 id="voice-output-queue-title">Up next</h3>
+            <span class="voice-output-count" id="voice-output-queue-count">0</span>
+          </div>
+          <ol class="voice-output-queue" id="voice-output-queue"></ol>
+          <p class="voice-output-empty" id="voice-output-queue-empty">No queued phrases.</p>
+        </section>
+
+        <section class="voice-output-section voice-output-history-section" aria-labelledby="voice-output-history-title">
+          <div class="section-heading">
+            <h3 id="voice-output-history-title">Spoken history</h3>
+            <button class="voice-output-clear" id="voice-output-clear" type="button">Clear</button>
+          </div>
+          <div class="voice-output-history" id="voice-output-history"></div>
+          <p class="voice-output-empty" id="voice-output-history-empty">Spoken phrases will appear here.</p>
+        </section>
+      </aside>
     </div>
+
+    <main class="model-manager-page" id="model-manager-page" hidden aria-labelledby="model-manager-title">
+      <div class="model-manager-shell">
+        <header class="model-manager-header">
+          <div class="model-manager-title-block">
+            <div class="model-manager-brandline">
+              <span class="model-manager-mark" aria-hidden="true"><svg><use href="#icon-spark"></use></svg></span>
+            <p class="eyebrow">ALICE MODEL WORKSPACE</p>
+            </div>
+            <h1 id="model-manager-title">Models</h1>
+            <p>Browse, install, and remove your local models from Alice. The runtime stays behind Alice’s authenticated API.</p>
+          </div>
+          <div class="model-manager-header-actions">
+            <span class="model-manager-status"><span aria-hidden="true"></span>Integrated runtime</span>
+            <button class="primary-button" id="open-localai-manager" type="button">Refresh catalog</button>
+            <button class="secondary-button" id="model-manager-open-huggingface" type="button">Import from Hugging Face</button>
+            <button class="secondary-button" id="model-manager-back" type="button">Back to Alice</button>
+          </div>
+        </header>
+        <section class="localai-embed" id="model-manager-localai-embed" aria-label="Alice model workspace">
+          <header class="alice-models-toolbar">
+            <div>
+              <p class="eyebrow">ALICE MODEL CATALOG</p>
+              <h2>Models <span id="alice-model-count">0</span> <small>available</small></h2>
+            </div>
+            <div class="alice-model-tabs" role="tablist" aria-label="Model catalog views">
+              <button class="alice-model-tab" id="alice-model-explore" type="button" role="tab" aria-selected="true">Explore</button>
+              <button class="alice-model-tab" id="alice-model-installed" type="button" role="tab" aria-selected="false">Installed <span id="alice-installed-count">0</span></button>
+            </div>
+          </header>
+          <div class="alice-model-filters">
+            <label class="alice-model-search"><span class="sr-only">Search models</span><input id="alice-model-search" type="search" placeholder="Search models…" autocomplete="off" /></label>
+            <label class="alice-model-select"><span class="sr-only">Filter by backend</span><select id="alice-model-backend"><option value="">All backends</option></select></label>
+            <label class="alice-model-select"><span class="sr-only">Filter by category</span><select id="alice-model-category"><option value="">All capabilities</option></select></label>
+          </div>
+          <section class="alice-model-host" aria-labelledby="alice-host-title">
+            <div class="alice-model-host-copy">
+              <p class="eyebrow">YOUR HOST</p>
+              <h3 id="alice-host-title"><span id="alice-gpu-total">—</span> of GPU memory available</h3>
+              <p id="alice-gpu-name">Reading GPU status…</p>
+            </div>
+            <div class="alice-vram-meter" aria-label="VRAM usage">
+              <div class="alice-vram-meter-heading"><span>VRAM usage</span><strong><span id="alice-gpu-used">—</span> used</strong></div>
+              <div class="alice-vram-track" role="progressbar" aria-label="VRAM used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="alice-gpu-bar"></span></div>
+              <small id="alice-gpu-free">—</small>
+            </div>
+          </section>
+          <section class="alice-download-section" id="alice-download-section" hidden aria-labelledby="alice-download-title">
+            <header class="alice-download-header">
+              <div>
+                <p class="eyebrow">ALICE ACTIVITY</p>
+                <h3 id="alice-download-title">Downloads <span id="alice-download-count">0</span></h3>
+              </div>
+              <button class="secondary-button" id="alice-download-refresh" type="button">Refresh</button>
+            </header>
+            <div class="alice-download-list" id="alice-download-list" aria-live="polite"></div>
+          </section>
+          <div class="alice-model-state" id="alice-model-state" role="status">Loading Alice’s model catalog…</div>
+          <div class="alice-model-content" id="alice-model-content" hidden>
+            <aside class="alice-model-list" id="alice-model-list" aria-label="Available models"></aside>
+            <section class="alice-model-detail" id="alice-model-detail" aria-live="polite"></section>
+          </div>
+        </section>
+        <div class="model-manager-custom-workspace" id="model-manager-custom-workspace" hidden>
+          <nav class="model-manager-steps" aria-label="Model import steps">
+          <span class="model-manager-step" data-hf-step="repository"><b>1</b><span>Repository</span></span>
+          <span class="model-manager-step" data-hf-step="selection"><b>2</b><span>Choose files</span></span>
+          <span class="model-manager-step" data-hf-step="install"><b>3</b><span>Install locally</span></span>
+          </nav>
+          <div class="model-manager-grid">
+          <section class="model-manager-panel model-import-panel" id="model-manager-import" aria-label="Hugging Face import">
+            <aside class="model-manager-guide" aria-label="Import guide">
+              <div>
+                <p class="eyebrow">HOW IT WORKS</p>
+                <h2>Model management lives in Alice</h2>
+              </div>
+              <p>Alice owns model discovery, downloads, configuration, hardware-fit checks, and deletion in this workspace. You can manage everything without another model-management service.</p>
+              <div class="model-manager-guide-list">
+                <div><span>01</span><p><strong>Inspect</strong><small>See files, size, and hardware fit before downloading.</small></p></div>
+                <div><span>02</span><p><strong>Select</strong><small>Pick a quantization that matches your available memory.</small></p></div>
+                <div><span>03</span><p><strong>Install</strong><small>Keep the model local and ready for your next chat.</small></p></div>
+              </div>
+            </aside>
+          </section>
+          <section class="model-manager-panel" id="model-manager-library" aria-label="Local model library"></section>
+          </div>
+        </div>
+      </div>
+    </main>
 
     <dialog class="modal" id="settings-dialog" aria-labelledby="settings-title">
       <div class="modal-shell settings-shell">
@@ -303,6 +503,7 @@
             <h2 id="settings-title">Provider profiles</h2>
             <p>Connect an OpenAI-compatible service or a local inference server.</p>
           </div>
+          <button class="secondary-button settings-models-button" id="open-localai-models-settings" type="button">Open Alice Models</button>
           <button class="icon-button dialog-close" type="button" aria-label="Close settings">
             <svg><use href="#icon-close"></use></svg>
           </button>
@@ -321,7 +522,7 @@
             </div>
             <button class="secondary-button gguf-launch" id="open-gguf" type="button">
               <svg aria-hidden="true"><use href="#icon-download"></use></svg>
-              Import a GGUF model
+              Import a GGUF into Alice
             </button>
             <button class="secondary-button gguf-launch" id="open-huggingface" type="button">
               <svg aria-hidden="true"><use href="#icon-download"></use></svg>
@@ -338,6 +539,27 @@
             </form>
           </section>
 
+          <section class="profile-section memory-section" aria-labelledby="memory-title">
+            <div class="section-heading">
+              <h3 id="memory-title">Alice memory</h3>
+              <span>Local only</span>
+            </div>
+            <p>Stable preferences and facts are available in future conversations. Avoid secrets and passwords.</p>
+            <div class="profile-list" id="memory-list"></div>
+            <div class="profile-empty" id="memory-empty">
+              <p>No persistent memories yet.</p>
+              <span>Ask Alice to remember something, or add one below.</span>
+            </div>
+            <form class="model-pull-form" id="memory-form">
+              <label for="memory-input">Remember a fact</label>
+              <div class="model-pull-row">
+                <input id="memory-input" name="content" type="text" required maxlength="4000" autocomplete="off" placeholder="e.g. I prefer concise answers" />
+                <button class="secondary-button" type="submit">Remember</button>
+              </div>
+              <div class="form-message" id="memory-message" role="status" aria-live="polite"></div>
+            </form>
+          </section>
+
           <form class="provider-form" id="provider-form">
             <div class="section-heading">
               <h3>Add provider</h3>
@@ -350,6 +572,7 @@
             <label>
               <span>Provider type</span>
               <select id="provider-type" name="type" required>
+                <option value="localai">LocalAI</option>
                 <option value="openai_compatible">OpenAI compatible</option>
                 <option value="openai">OpenAI</option>
                 <option value="ollama">Ollama</option>
@@ -406,7 +629,7 @@
           <div>
             <p class="eyebrow">LOCAL MODEL</p>
             <h2 id="gguf-title">Import GGUF</h2>
-            <p>Register a model file already stored on this machine.</p>
+            <p>Install a model file already stored on this machine into Alice.</p>
           </div>
           <button class="icon-button dialog-close" type="button" aria-label="Close GGUF import">
             <svg><use href="#icon-close"></use></svg>
@@ -414,7 +637,7 @@
         </header>
         <div class="gguf-note">
           <svg aria-hidden="true"><use href="#icon-alert"></use></svg>
-          <p>Alice registers the file path; the model remains in its current location.</p>
+          <p>Alice copies the file into its managed model directory and creates the model configuration.</p>
         </div>
         <label>
           <span>GGUF file path</span>
@@ -433,70 +656,89 @@
     </dialog>
 
       <dialog class="modal compact-modal" id="huggingface-dialog" aria-labelledby="huggingface-title">
-      <form class="modal-shell" id="huggingface-form">
-        <header class="modal-header">
-          <div>
-            <p class="eyebrow">HUGGING FACE</p>
-              <h2 id="huggingface-title">Import from Hugging Face</h2>
-              <p>Paste a Hugging Face model link. GGUFs import into Ollama; standard model files can be downloaded for a compatible local runtime.</p>
+        <form class="modal-shell hf-import-form" id="huggingface-form">
+          <header class="hf-form-header">
+            <div>
+              <p class="eyebrow">STEP 1 · REPOSITORY</p>
+              <h2 id="huggingface-title">Choose a model source</h2>
+              <p>Start with the model page or owner/repository name. Alice will inspect it before any files are downloaded.</p>
+            </div>
+            <span class="hf-secure-badge"><svg aria-hidden="true"><use href="#icon-check"></use></svg>Local only</span>
+          </header>
+          <div class="hf-callout">
+            <svg aria-hidden="true"><use href="#icon-alert"></use></svg>
+            <p>Private or gated repository? Save your token once for encrypted reuse, or use it only for this action.</p>
           </div>
-          <button class="icon-button dialog-close" type="button" aria-label="Close Hugging Face import">
-            <svg><use href="#icon-close"></use></svg>
-          </button>
-        </header>
-        <div class="gguf-note">
-          <svg aria-hidden="true"><use href="#icon-alert"></use></svg>
-            <p>Inspect the repository first. A complete model download can be several gigabytes and standard Transformers models need their own runtime.</p>
-        </div>
-        <label>
-            <span>Model link or repository</span>
-            <input id="huggingface-repository" name="repository" type="text" required autocomplete="off" spellcheck="false" placeholder="https://huggingface.co/Qwen/Qwen2.5-Omni-3B" />
-          <small>For gated or private models, set <code>HF_TOKEN</code> in <code>.env</code> before starting Alice.</small>
-        </label>
-          <label>
-            <span>Revision</span>
-            <input id="huggingface-revision" name="revision" type="text" value="main" required autocomplete="off" spellcheck="false" />
-          </label>
-          <label>
-            <span>Hugging Face access token <em>optional</em></span>
-            <input id="huggingface-token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="hf_…" />
-            <small>Use this for faster authenticated downloads or gated models. It is sent only to Alice's local server and is never saved.</small>
-          </label>
-          <section class="model-inspection" id="huggingface-inspection" hidden aria-live="polite">
-            <div>
-              <span>Download size</span>
-              <strong id="huggingface-download-size">—</strong>
+          <section class="hf-form-section hf-source-section" aria-labelledby="hf-source-heading">
+            <div class="hf-section-heading">
+              <span class="hf-step-number">01</span>
+              <div><h3 id="hf-source-heading">Repository details</h3><p>Paste a Hugging Face URL or use <code>owner/repository</code>.</p></div>
             </div>
-            <div>
-              <span>Model weights</span>
-              <strong id="huggingface-weight-size">—</strong>
+            <label class="hf-field">
+              <span>Model repository</span>
+              <input id="huggingface-repository" name="repository" type="text" required autocomplete="off" spellcheck="false" placeholder="Qwen/Qwen2.5-Omni-3B" />
+            </label>
+            <div class="hf-inline-fields">
+              <label class="hf-field">
+                <span>Revision <em>optional</em></span>
+                <input id="huggingface-revision" name="revision" type="text" value="main" required autocomplete="off" spellcheck="false" placeholder="main" />
+              </label>
+              <label class="hf-field">
+                <span>Access token <em>optional</em></span>
+                <input id="huggingface-token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="hf_…" />
+                <div class="hf-token-actions">
+                  <span id="huggingface-token-status" class="hf-token-status">Not saved on this host</span>
+                  <button class="hf-token-button" id="save-huggingface-token" type="button">Save token</button>
+                  <button class="hf-token-button hf-token-clear" id="clear-huggingface-token" type="button" disabled>Clear</button>
+                </div>
+              </label>
             </div>
-            <div>
-              <span>Est. GPU memory</span>
-              <strong id="huggingface-gpu-estimate">—</strong>
-            </div>
-            <div>
-              <span>Local GPU</span>
-              <strong id="huggingface-gpu-fit">—</strong>
-            </div>
+            <small class="hf-field-help">Saved tokens are encrypted for this Windows user and reused automatically. A token entered without saving is used only for the current action.</small>
           </section>
-          <label>
-            <span>GGUF / quantized download</span>
-            <select id="huggingface-file" name="filename" required disabled>
-              <option value="">Search a repository first</option>
-            </select>
-        </label>
-        <label>
-          <span>Display name <em>optional</em></span>
-          <input id="huggingface-name" name="name" type="text" autocomplete="off" placeholder="Use the GGUF file name" />
-        </label>
-        <div class="form-message" id="huggingface-form-message" role="status" aria-live="polite"></div>
-          <footer class="modal-actions">
-            <button class="secondary-button" id="huggingface-search" type="submit">Inspect model</button>
-            <button class="secondary-button" id="huggingface-download" type="button" disabled>Download model files</button>
-            <button class="primary-button" id="huggingface-import" type="button" disabled>Download and import</button>
-        </footer>
-      </form>
+
+          <section class="hf-results-section" id="huggingface-results" hidden aria-labelledby="hf-results-heading">
+            <div class="hf-section-heading">
+              <span class="hf-step-number">02</span>
+              <div><h3 id="hf-results-heading">Review and choose</h3><p id="huggingface-repository-summary">Repository inspection results will appear here.</p></div>
+            </div>
+            <div class="hf-repository-meta">
+              <div><span>Repository</span><strong id="huggingface-repository-name">—</strong></div>
+              <div><span>Format</span><strong id="huggingface-format">—</strong></div>
+              <div><span>Files</span><strong id="huggingface-file-count">—</strong></div>
+              <div><span>Parameters</span><strong id="huggingface-parameter-count">—</strong></div>
+            </div>
+            <section class="model-inspection" id="huggingface-inspection" aria-label="Model resource estimate" hidden>
+              <div><span>Repository size</span><strong id="huggingface-download-size">—</strong></div>
+              <div><span>Model weights</span><strong id="huggingface-weight-size">—</strong></div>
+              <div><span>Est. GPU memory</span><strong id="huggingface-gpu-estimate">—</strong></div>
+              <div><span>Local GPU fit</span><strong id="huggingface-gpu-fit">—</strong></div>
+            </section>
+            <div class="hf-file-picker">
+              <div class="hf-picker-heading"><div><span>GGUF files</span><small>Choose one quantization to install into Alice.</small></div><strong id="huggingface-selection-label">Select a file</strong></div>
+              <div class="hf-file-list" id="huggingface-file-list" role="radiogroup" aria-label="GGUF files"></div>
+              <select class="sr-only" id="huggingface-file" name="filename" required disabled aria-label="Selected GGUF file">
+                <option value="">Inspect a repository first</option>
+              </select>
+            </div>
+            <label class="hf-field hf-name-field">
+              <span>Display name <em>optional</em></span>
+              <input id="huggingface-name" name="name" type="text" autocomplete="off" placeholder="Generated from the selected file" />
+              <small>The name is normalized for Alice and can be changed later in the model manager.</small>
+            </label>
+          </section>
+
+          <section class="hf-progress-section" id="huggingface-progress" hidden aria-live="polite">
+            <div class="hf-progress-heading"><div><span id="huggingface-progress-label">Preparing download</span><small id="huggingface-progress-detail">Keep Alice open while files are transferred.</small></div><strong id="huggingface-progress-value">—</strong></div>
+            <div class="hf-progress-track"><span id="huggingface-progress-bar"></span></div>
+          </section>
+          <div class="form-message hf-form-message" id="huggingface-form-message" role="status" aria-live="polite"></div>
+          <footer class="hf-action-bar">
+            <button class="secondary-button" id="huggingface-search" type="submit">Inspect repository</button>
+            <div class="hf-action-divider"></div>
+            <button class="secondary-button" id="huggingface-download" type="button" disabled>Download repository</button>
+            <button class="primary-button" id="huggingface-import" type="button" disabled>Install selected GGUF</button>
+          </footer>
+        </form>
       </dialog>
 
       <dialog class="modal workspace-modal" id="workspace-dialog" aria-labelledby="workspace-title">
@@ -561,6 +803,13 @@
             <span id="model-library-total">—</span>
             <button class="secondary-button" id="refresh-model-library" type="button">Refresh library</button>
           </div>
+          <section class="model-library-section" aria-labelledby="localai-library-heading">
+            <div class="section-heading">
+              <h3 id="localai-library-heading">Downloaded models</h3>
+              <span id="localai-library-count">0</span>
+            </div>
+            <div class="model-library-list" id="localai-library-list"></div>
+          </section>
           <section class="model-library-section" aria-labelledby="ollama-library-heading">
             <div class="section-heading">
               <h3 id="ollama-library-heading">Ready in Ollama</h3>
@@ -596,14 +845,28 @@
           <div>
             <p class="eyebrow">VOICE ENGINE</p>
             <div class="voice-runtime-state" id="voice-runtime-state" role="status" aria-live="polite"></div>
+            <div class="voice-pipeline" id="voice-pipeline" aria-label="Alice voice pipeline"></div>
           </div>
           <label class="voice-output-toggle">
             <input id="voice-panel-output" type="checkbox" />
-            <span>Speak completed replies</span>
+            <span>Speak replies as they arrive</span>
             <small>Local only</small>
           </label>
         </section>
         <div class="voice-settings-grid">
+          <section class="voice-card voice-interruption-card" aria-labelledby="voice-interruption-title">
+            <h3 id="voice-interruption-title">Interrupt Alice</h3>
+            <label class="voice-output-toggle">
+              <input id="voice-interruptions" type="checkbox" />
+              <span>Stop speaking when I speak</span>
+            </label>
+            <label class="voice-output-toggle">
+              <input id="voice-wake-word" type="checkbox" />
+              <span>Listen for “Hey Alice”</span>
+            </label>
+            <p>Uses your microphone while enabled. Speech detection stays on this computer; audio is not saved. Headphones help prevent Alice’s own voice from triggering an interruption.</p>
+            <p id="voice-input-status" role="status">Microphone off. Use Dictate or enable the wake word.</p>
+          </section>
           <section class="voice-card" aria-labelledby="voice-voice-title">
             <div class="section-heading"><h3 id="voice-voice-title">Voice profile</h3><span>OpenVoice</span></div>
             <label>
@@ -622,6 +885,38 @@
                 <option value="1.15">Fast · 1.15×</option>
               </select>
             </label>
+            <label>
+              <span>Mood &amp; attitude</span>
+              <select id="voice-style">
+                <option value="balanced" selected>Balanced — natural and neutral</option>
+                <option value="calm">Calm — measured and low-variation</option>
+                <option value="warm">Warm — gentle and reassuring</option>
+                <option value="confident">Confident — clear and direct</option>
+                <option value="upbeat">Upbeat — energetic and bright</option>
+                <option value="playful">Playful — lively and expressive</option>
+                <option value="serious">Serious — controlled and focused</option>
+                <option value="dramatic">Dramatic — high contrast and expressive</option>
+              </select>
+              <small id="voice-style-help">Applies a prosody preset; refine it below if needed.</small>
+            </label>
+            <details class="voice-advanced">
+              <summary>Advanced prosody</summary>
+              <label>
+                <span>Voice variation <output id="voice-noise-scale-value">0.60</output></span>
+                <input id="voice-noise-scale" type="range" min="0.2" max="1.2" step="0.01" value="0.60" />
+                <small>Higher values make delivery less uniform.</small>
+              </label>
+              <label>
+                <span>Rhythm variation <output id="voice-noise-scale-w-value">0.80</output></span>
+                <input id="voice-noise-scale-w" type="range" min="0.2" max="1.4" step="0.01" value="0.80" />
+                <small>Controls variation in syllable and word timing.</small>
+              </label>
+              <label>
+                <span>Cadence blend <output id="voice-sdp-ratio-value">0.20</output></span>
+                <input id="voice-sdp-ratio" type="range" min="0" max="1" step="0.01" value="0.20" />
+                <small>Balances predictable pacing with expressive timing.</small>
+              </label>
+            </details>
           </section>
           <section class="voice-card" aria-labelledby="voice-preview-title">
             <div class="section-heading"><h3 id="voice-preview-title">Preview</h3><span>Up to 500 characters</span></div>

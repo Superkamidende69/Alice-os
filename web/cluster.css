@@ -1,0 +1,32 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #11151b; color: #edf2fa; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1120px; margin: auto; padding: 32px 24px 64px; }
+nav, .heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+a { color: #a6daca; }
+header { max-width: 760px; padding: 40px 0 18px; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; line-height: 1.12; margin: 12px 0; }
+h2 { margin: 6px 0 16px; font-size: 1.35rem; }
+p { color: #afb9c8; line-height: 1.6; }
+.eyebrow { color: #9dd5c1; font-size: .73rem; letter-spacing: .16em; font-weight: 700; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+section { border: 1px solid #303946; background: #191f28; border-radius: 16px; padding: 24px; margin-bottom: 20px; min-width: 0; }
+form { display: grid; gap: 16px; margin: 22px 0; }
+label { display: grid; gap: 8px; font-size: .9rem; }
+input, select, textarea { width: 100%; padding: 11px; border: 1px solid #465264; border-radius: 7px; background: #11161e; color: inherit; font: inherit; }
+textarea { font: .8rem ui-monospace, monospace; resize: vertical; }
+.check { display: flex; align-items: center; }
+.check input { width: 18px; height: 18px; }
+button { cursor: pointer; border: 1px solid transparent; border-radius: 7px; padding: 11px 16px; background: #b3e6d0; color: #12251f; font: inherit; font-weight: 600; }
+button.secondary { background: transparent; color: #cbd7e6; border-color: #465264; }
+button:disabled { opacity: .5; cursor: wait; }
+:focus-visible { outline: 3px solid #a3c9ff; outline-offset: 3px; }
+output { display: block; overflow-wrap: anywhere; user-select: all; color: #b3e6d0; margin-bottom: 20px; }
+summary { cursor: pointer; padding: 8px 0; }
+#notice { min-height: 24px; color: #b3e6d0; }
+#notice.error { color: #ffa8a8; }
+.node { padding: 16px 0; border-top: 1px solid #303946; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.node p { margin: 5px 0; overflow-wrap: anywhere; }
+.node div { min-width: 0; }
+.footnote { font-size: .85rem; }
+@media(max-width: 720px) { .columns { grid-template-columns: 1fr; } main { padding: 20px 16px; } .node { align-items: start; flex-direction: column; } }

@@ -82,6 +82,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "Alice OS installed, but its package could not be imported."
 }
 
+& $venvPython -m alice_os --setup
+if ($LASTEXITCODE -ne 0) { throw "Alice first-install setup failed." }
+
 $ollama = Get-Command "ollama" -ErrorAction SilentlyContinue
 if ($ollama) {
     Write-Host "Ollama executable: $($ollama.Source)"

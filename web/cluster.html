@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Alice · Cluster</title>
+  <link rel="stylesheet" href="/static/cluster.css">
+  <script src="/static/cluster.js?v=gpu-controls-2" defer></script>
+</head>
+<body>
+  <main>
+    <nav><a href="/">← Alice Chat</a><a href="/models">Models</a></nav>
+    <header><p class="eyebrow">ALICE NETWORK</p><h1>More machines. One conversation.</h1>
+      <p>Connect trusted PCs to share their GPUs or run models. Your conversations and tools stay on this controller.</p>
+    </header>
+    <p id="notice" role="status" aria-live="polite"></p>
+    <div class="columns">
+      <section>
+        <p class="eyebrow">ON THIS MACHINE</p><h2>Share this machine’s GPU</h2>
+        <p>Choose a GPU and start sharing. Paired controllers can then use it as part of a larger model. Stop sharing to disconnect them.</p>
+        <label>GPU<select id="gpu-device" aria-label="GPU to share"></select></label>
+        <p id="gpu-status" role="status">Checking GPUs…</p>
+        <div><button id="gpu-start" type="button">Start GPU sharing</button> <button id="gpu-stop" type="button" class="secondary">Stop sharing</button></div>
+        <details><summary>Also share a complete model service</summary>
+        <p>Enable sharing on the PC that will do the inference. It must run Alice with HTTPS enabled and be reachable from your controller.</p>
+        <form id="worker-form">
+          <label class="check"><input type="checkbox" id="enabled"> Enable inference worker</label>
+          <label>Local provider<select id="provider" required></select></label>
+          <label>Maximum simultaneous requests<input id="parallel" type="number" min="1" max="8" value="1" required></label>
+          <button type="submit">Save sharing settings</button>
+        </form>
+        </details>
+        <h3>Pair this machine with your controller</h3>
+        <button id="pair-code" type="button" class="secondary">Create pairing code</button>
+        <p>Codes expire after five minutes and can be used once.</p>
+        <output id="code"></output>
+        <details><summary>Worker CA certificate</summary>
+          <p>Copy this public certificate directly from this worker into the controller form. Never copy a private key.</p>
+          <textarea id="certificate" rows="8" readonly aria-label="Worker public CA certificate"></textarea>
+        </details>
+        <h3>Authorized controllers</h3><div id="controllers"></div>
+      </section>
+      <section>
+        <p class="eyebrow">FROM THIS CONTROLLER</p><h2>Add a worker</h2>
+        <p>In the Tailscale app, sign both PCs into the same network. On the other PC, open Alice’s Cluster page and start GPU sharing. Copy its pairing code and public certificate here.</p>
+        <p>For the worker address, use HTTPS followed by the worker’s IPv4 address copied from Tailscale. If Tailscale was installed after Alice started, restart Alice on that worker to include its new address in the certificate.</p>
+        <form id="join-form">
+          <label>Connection name<input id="name" maxlength="80" placeholder="GPU workstation" required></label>
+          <label>Worker HTTPS address<input id="url" type="url" placeholder="https://alice-worker.local" required></label>
+          <label>One-time pairing code<input id="join-code" autocomplete="off" required></label>
+          <label>Worker CA certificate<textarea id="ca" rows="5" placeholder="-----BEGIN CERTIFICATE-----"></textarea></label>
+          <p>A custom CA is optional when the worker already uses a certificate trusted by this machine.</p>
+          <button type="submit">Pair worker</button>
+        </form>
+      </section>
+    </div>
+    <section><div class="heading"><h2>Connected workers</h2><button id="refresh" class="secondary">Refresh status</button></div>
+      <p>Select workers below to split a model across GPUs, or choose a shared model in Alice Chat. Refresh to check their current status.</p>
+      <div id="nodes"></div>
+    </section>
+    <section>
+      <p class="eyebrow">EXPERIMENTAL · ONE MODEL, MULTIPLE GPUS</p>
+      <h2>Use multiple GPUs for one model</h2>
+      <p>Select paired machines below. Alice connects their GPUs securely and includes this controller’s local GPU. This can fit larger GGUF models; generation speed depends on the GPUs and network. Use matching Alice runtime versions on all machines.</p>
+      <form id="distributed-form">
+        <label class="check"><input id="distributed-enabled" type="checkbox"> Enable distributed model loading</label>
+        <div id="gpu-workers"></div>
+        <details><summary>Advanced: manually managed tunnels</summary>
+          <label>Additional local tunnel addresses<textarea id="distributed-endpoints" rows="3"></textarea></label>
+        </details>
+        <div><button id="distributed-probe" type="button" class="secondary">Check GPUs</button> <button type="submit">Save model splitting</button></div>
+      </form>
+      <pre id="distributed-devices" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+      <p>After saving, <a href="/models">open Models</a> and load the GGUF again. Alice connects the selected workers and checks them before replacing the loaded model. Conversations use the resulting Alice-managed model as usual.</p>
+    </section>
+    <p class="footnote">Automatic scheduling, remote command workers and controller failover are not included.</p>
+  </main>
+</body>
+</html>

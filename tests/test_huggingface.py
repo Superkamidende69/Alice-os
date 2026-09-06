@@ -77,6 +77,7 @@ async def test_imports_downloaded_huggingface_gguf_into_ollama(
         filename="quant/model-q4.gguf",
         revision="revision-1",
         requested_name="alice-small",
+        runtime="ollama",
     )
 
     assert download_call["repo_id"] == "org/example"
@@ -88,6 +89,38 @@ async def test_imports_downloaded_huggingface_gguf_into_ollama(
     assert result["repository"] == "org/example"
     assert result["filename"] == "quant/model-q4.gguf"
     assert result["runtime"] == "ollama"
+
+
+@pytest.mark.asyncio
+async def test_imports_downloaded_huggingface_gguf_into_localai(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    downloaded = tmp_path / "downloaded.gguf"
+    downloaded.write_bytes(b"gguf")
+
+    def fake_download(**_: object) -> str:
+        return str(downloaded)
+
+    monkeypatch.setattr(runtimes, "hf_hub_download", fake_download)
+
+    result = await runtimes.import_huggingface_gguf(
+        data_dir=tmp_path / "alice-data",
+        repository="org/example",
+        filename="model-q4.gguf",
+        requested_name="alice-small",
+        runtime="localai",
+    )
+
+    model_dir = tmp_path / "alice-data" / "models" / "localai"
+    assert result["runtime"] == "localai"
+    assert (model_dir / "alice-small.gguf").read_bytes() == b"gguf"
+    assert (model_dir / "alice-small.yaml").read_text(encoding="utf-8") == (
+        "name: alice-small\n"
+        "backend: llama-cpp\n"
+        "parameters:\n"
+        "  model: alice-small.gguf\n"
+        "context_size: 8192\n"
+    )
 
 
 @pytest.mark.asyncio
@@ -116,6 +149,21 @@ async def test_downloads_a_complete_model_repository_from_a_huggingface_link(
     )
     assert result["repository"] == "Qwen/Qwen2.5-Omni-3B"
     assert result["runtime"] == "downloaded"
+
+
+def test_reports_huggingface_download_progress(tmp_path: Path) -> None:
+    model_dir = tmp_path / "models" / "huggingface" / "org--example"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_bytes(b"{}")
+    (model_dir / "model-q4.gguf").write_bytes(b"x" * 123)
+    cache = model_dir / ".cache"
+    cache.mkdir()
+    (cache / "metadata").write_bytes(b"x" * 999)
+
+    assert runtimes.huggingface_download_progress(
+        data_dir=tmp_path,
+        repository="org/example",
+    ) == {"files_downloaded": 2, "downloaded_bytes": 125}
 
 
 @pytest.mark.asyncio

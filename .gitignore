@@ -20,3 +20,6 @@ tools/
 *.bin
 *.pth
 *.pt
+
+.alice-install.json
+.alice-install.tmp

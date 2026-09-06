@@ -46,6 +46,8 @@ printf 'Installing Alice OS in editable mode...\n'
 "$VENV_PYTHON" -m pip install --editable "$INSTALL_TARGET"
 "$VENV_PYTHON" -c "import alice_os; print('Alice OS package import: OK')"
 
+"$VENV_PYTHON" -m alice_os --setup
+
 if command -v ollama >/dev/null 2>&1; then
   printf 'Ollama executable: %s\n' "$(command -v ollama)"
 else

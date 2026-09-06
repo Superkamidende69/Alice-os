@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from alice_os.api import create_app
+from alice_os.voice import resolve_voice_style
 
 
 def test_api_requires_session_token_and_rejects_foreign_origin(
@@ -68,6 +70,86 @@ def test_voice_status_is_session_protected(tmp_path: Path) -> None:
         response = client.get("/api/voice/status")
         assert response.status_code == 200
         assert isinstance(response.json()["ready"], bool)
+        pipeline = response.json()["pipeline"]
+        assert [stage["id"] for stage in pipeline["stages"]] == ["vad", "transcription", "llm", "tts"]
+        assert pipeline["streaming"]["clause_chunking"] is True
+
+
+def test_openai_compatible_tts_is_session_protected(monkeypatch, tmp_path: Path) -> None:
+    async def fake_synthesize(**_: object) -> dict[str, bytes]:
+        return {"audio": b"RIFFopenai"}
+
+    monkeypatch.setattr("alice_os.api.synthesize_openvoice", fake_synthesize)
+    app = create_app(tmp_path / "data")
+    with TestClient(app) as client:
+        assert client.post("/v1/audio/speech", json={"input": "Hello"}).status_code == 401
+        headers = {"X-Alice-Token": app.state.session_token}
+        response = client.post(
+            "/v1/audio/speech",
+            headers=headers,
+            json={"model": "tts-1", "input": "Hello", "voice": "nova"},
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert response.content == b"RIFFopenai"
+
+        alias = client.post("/tts", headers=headers, json={"input": "Hello"})
+        assert alias.status_code == 200
+        assert alias.content == b"RIFFopenai"
+
+
+def test_voice_warm_uses_the_authenticated_local_api(monkeypatch, tmp_path: Path) -> None:
+    async def fake_warm() -> dict[str, object]:
+        return {"ready": True, "warmed": True}
+
+    monkeypatch.setattr("alice_os.api.warm_openvoice", fake_warm)
+    app = create_app(tmp_path / "data")
+    with TestClient(app) as client:
+        assert client.post("/api/voice/warm").status_code == 401
+        response = client.post("/api/voice/warm", headers={"X-Alice-Token": app.state.session_token})
+        assert response.status_code == 200
+        assert response.json()["warmed"] is True
+
+
+def test_voice_style_presets_and_bounds() -> None:
+    assert resolve_voice_style("calm", None, None, None)["noise_scale"] < 0.6
+    custom = resolve_voice_style("balanced", 0.9, 1.1, 0.7)
+    assert custom == {"noise_scale": 0.9, "noise_scale_w": 1.1, "sdp_ratio": 0.7}
+
+
+def test_voice_audio_is_memory_backed_and_session_protected(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "data")
+    with TestClient(app) as client:
+        app.state.audio_cache["test-clip"] = (time.monotonic(), b"RIFFdemo")
+        assert client.get("/api/voice/audio/test-clip").status_code == 401
+        response = client.get(
+            "/api/voice/audio/test-clip", headers={"X-Alice-Token": app.state.session_token}
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert response.content == b"RIFFdemo"
+
+
+def test_voice_synthesis_returns_a_transient_audio_url(monkeypatch, tmp_path: Path) -> None:
+    async def fake_synthesize(**_: object) -> dict[str, bytes]:
+        return {"audio": b"RIFFgenerated"}
+
+    monkeypatch.setattr("alice_os.api.synthesize_openvoice", fake_synthesize)
+    app = create_app(tmp_path / "data")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/voice/synthesize",
+            headers={"X-Alice-Token": app.state.session_token},
+            json={"text": "Hello from Alice."},
+        )
+        assert response.status_code == 200
+        url = response.json()["url"]
+        assert url.startswith("/api/voice/audio/")
+        assert (tmp_path / "data" / "audio").exists() is False
+
+        audio = client.get(url, headers={"X-Alice-Token": app.state.session_token})
+        assert audio.status_code == 200
+        assert audio.content == b"RIFFgenerated"
 
 
 def test_voice_reference_upload_stays_in_alice_data(tmp_path: Path) -> None:
@@ -179,7 +261,8 @@ def test_huggingface_endpoints_use_authenticated_local_api(monkeypatch, tmp_path
     async def fake_import(**kwargs: object) -> dict[str, object]:
         assert kwargs["repository"] == "org/example"
         assert kwargs["filename"] == "model.gguf"
-        return {"model": "alice", "runtime": "ollama"}
+        assert kwargs["runtime"] == "localai"
+        return {"model": "alice", "runtime": "localai"}
 
     async def fake_download(**kwargs: object) -> dict[str, object]:
         assert kwargs["repository"] == "https://huggingface.co/Qwen/Qwen2.5-Omni-3B"
@@ -209,7 +292,7 @@ def test_huggingface_endpoints_use_authenticated_local_api(monkeypatch, tmp_path
             json={"repository": "org/example", "filename": "model.gguf"},
         )
         assert imported.status_code == 200
-        assert imported.json() == {"model": "alice", "runtime": "ollama"}
+        assert imported.json() == {"model": "alice", "runtime": "localai"}
 
         downloaded = client.post(
             "/api/huggingface/download",
@@ -222,6 +305,56 @@ def test_huggingface_endpoints_use_authenticated_local_api(monkeypatch, tmp_path
         status_response = client.get(f"/api/huggingface/downloads/{job['id']}", headers=headers)
         assert status_response.status_code == 200
         assert status_response.json()["status"] in {"downloading", "complete"}
+
+
+def test_huggingface_token_is_persistent_but_never_returned(
+    monkeypatch, tmp_path: Path
+) -> None:
+    seen: dict[str, str] = {}
+
+    async def fake_inspect(repository: str, revision: str, token: str = "") -> dict[str, object]:
+        seen["token"] = token
+        return {
+            "repository": repository,
+            "revision": revision,
+            "gguf_files": [],
+            "file_count": 0,
+            "total_size": 0,
+            "format": "other",
+        }
+
+    monkeypatch.setattr("alice_os.api.inspect_huggingface_repository", fake_inspect)
+    app = create_app(tmp_path / "data")
+
+    with TestClient(app) as client:
+        headers = {"X-Alice-Token": app.state.session_token}
+        status_response = client.get("/api/huggingface/token", headers=headers)
+        assert status_response.json()["configured"] is False
+
+        saved = client.post(
+            "/api/huggingface/token",
+            headers=headers,
+            json={"token": "hf_example_token"},
+        )
+        assert saved.status_code == 200
+        assert saved.json() == {"configured": True}
+
+        status_response = client.get("/api/huggingface/token", headers=headers)
+        assert status_response.status_code == 200
+        assert status_response.json()["configured"] is True
+        assert "hf_example_token" not in status_response.text
+
+        inspected = client.post(
+            "/api/huggingface/inspect",
+            headers=headers,
+            json={"repository": "org/example"},
+        )
+        assert inspected.status_code == 200
+        assert seen["token"] == "hf_example_token"
+
+        cleared = client.delete("/api/huggingface/token", headers=headers)
+        assert cleared.status_code == 200
+        assert cleared.json() == {"configured": False}
 
 
 def test_workspace_browser_endpoints_stay_inside_selected_workspace(tmp_path: Path) -> None:

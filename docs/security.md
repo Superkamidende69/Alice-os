@@ -22,16 +22,20 @@ unlocked machine.
 
 ## Network boundary
 
-The CLI accepts only `127.0.0.1` or `localhost` and Uvicorn binds to
-`127.0.0.1`. `TrustedHostMiddleware` permits only `127.0.0.1`, `localhost`, and
-the test host. Do not work around this to expose Alice on a LAN: the session
-cookie is intentionally non-secure because transport is loopback HTTP, and the
-application has no multi-user authentication or TLS termination.
+The default CLI mode accepts only `127.0.0.1` or `localhost` and Uvicorn binds
+to loopback. The explicit `-Network` launcher mode binds Alice to the LAN and
+enables the single-owner username/password login and HTTPS. Use `-Network` for
+LAN use: Alice creates a local CA and server certificate under
+`.alice-data/tls`, and session cookies are marked secure. The CA certificate
+must be installed on each client device once. Do not forward Alice to the
+public internet.
 
 Opening `/` creates a random 256-bit-style URL-safe process token and returns it
 as an HttpOnly, SameSite=Strict cookie with a one-day maximum age. Protected
-routes accept that cookie or an `X-Alice-Token` header. If a browser supplies an
-`Origin`, its hostname must be loopback. Restarting Alice rotates the token.
+routes accept that cookie or an `X-Alice-Token` header. In network mode, the
+additional single-owner LAN access cookie is required. If a browser supplies an
+`Origin`, its hostname must match the current Alice host. Restarting Alice
+rotates the process token while the LAN account remains in `.alice-data`.
 
 `GET /api/health`, `/`, and static assets are intentionally unauthenticated.
 FastAPI's interactive documentation routes are disabled.
@@ -82,9 +86,10 @@ for arbitrary executables.
 | List, read, or search workspace text | Automatic | Path and size/count bounds. |
 | Store or search conversation memory | Automatic | Memory length is capped at 4,000 characters. |
 | Create or replace a text file | Ask every time | Unified diff and resolved relative path. |
-| Launch a local process | Ask every time | Structured argv and workspace cwd. |
+| Launch an unsandboxed host process | Ask every time | Structured argv, workspace cwd, and an explicit host-permission warning. |
+| Launch a Docker-sandboxed process | Ask every time | Network disabled, capabilities dropped, resource limits, read-only container root, and workspace-only mount. |
 | Pull an Ollama model | Direct authenticated UI/API action | No agent tool; may download large files. |
-| Import a GGUF | Direct authenticated UI/API action | No agent tool; runs `ollama create`. |
+| Import a GGUF | Direct authenticated UI/API action | No agent tool; copies the file into Alice's LocalAI model directory and writes a `llama-cpp` config. |
 
 Approval is one-shot. It is associated with the pending call ID; a fingerprint
 also binds tool name, full arguments, and workspace for display/audit purposes.
@@ -103,10 +108,18 @@ paths, network access, inherited OS permissions, subprocesses, or its own config
 to affect resources outside the workspace. A preview proves what Alice asked to
 launch, not what that program will do.
 
-For stronger isolation, run Alice under a dedicated OS account, use a disposable
-VM/container with deliberately mounted workspace paths, or add a reviewed OS
-sandbox layer before enabling process tools. Do not expose an approval-bypass
-mode.
+`sandbox_process_run` is the preferred process tool when Docker is available.
+It requires a preinstalled image and does not pull images. Its container has no
+network, an immutable root filesystem, a non-root user, dropped Linux
+capabilities, no-new-privileges, PID/CPU/memory limits, a temporary `/tmp`, and
+only the selected workspace bind-mounted. The workspace mount is read-only by
+default; a read-write mount still requires its own approval preview.
+
+Container isolation reduces exposure but does not make untrusted code harmless:
+the Docker daemon and the selected image remain part of the trusted computing
+base, and container-escape vulnerabilities are possible. Keep Docker patched;
+for higher-risk work, run Alice and Docker in a disposable VM or dedicated OS
+account. Do not expose an approval-bypass mode.
 
 ## Secrets
 
@@ -178,10 +191,11 @@ Only use model files and inference software from sources you trust. Keep Ollama,
 Python dependencies, the browser, and GPU drivers patched through their normal
 distribution channels.
 
-GGUF import passes an absolute source path to a generated Ollama Modelfile and
-runs `ollama create`. The original file remains, while Ollama may create another
-managed copy. Alice validates the extension but cannot establish model quality,
-license, provenance, architecture support, or absence of runtime parser bugs.
+GGUF import passes an absolute source path to Alice's LocalAI model directory
+and writes a `llama-cpp` YAML definition. The original file remains and the
+LocalAI copy can use additional disk space. Alice validates the extension but
+cannot establish model quality, license, provenance, architecture support, or
+absence of runtime parser bugs.
 
 ## Operational checklist
 

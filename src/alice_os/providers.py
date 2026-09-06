@@ -39,6 +39,8 @@ def _openai_url(base_url: str, suffix: str) -> str:
 
 
 async def list_models(profile: ProviderProfile) -> list[str]:
+    if profile.kind == "cluster":
+        raise ProviderError("Cluster providers require a paired controller")
     timeout = httpx.Timeout(10.0)
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
@@ -124,6 +126,8 @@ async def chat(
     tools: list[dict[str, Any]] | None = None,
     on_token: TokenCallback | None = None,
 ) -> AssistantTurn:
+    if profile.kind == "cluster":
+        raise ProviderError("Cluster providers require a paired controller")
     if not model:
         raise ProviderError("Select a model before sending a message")
     if profile.kind == "ollama":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import uuid
@@ -57,7 +58,43 @@ class Storage:
                     content TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS global_memories (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    source_session_id TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_global_memories_updated
+                    ON global_memories(updated_at DESC);
                 """
+            )
+            self._connection.execute(
+                "INSERT OR IGNORE INTO global_memories "
+                "(id, content, source_session_id, created_at, updated_at) "
+                "SELECT id, content, session_id, created_at, created_at FROM memories"
+            )
+            columns = {
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(global_memories)").fetchall()
+            }
+            migrations = {
+                "category": "TEXT NOT NULL DEFAULT 'fact'",
+                "memory_key": "TEXT NOT NULL DEFAULT ''",
+                "importance": "INTEGER NOT NULL DEFAULT 3",
+                "confidence": "REAL NOT NULL DEFAULT 1.0",
+                "source": "TEXT NOT NULL DEFAULT 'conversation'",
+                "last_accessed_at": "TEXT NOT NULL DEFAULT ''",
+                "archived": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for name, definition in migrations.items():
+                if name not in columns:
+                    self._connection.execute(
+                        f"ALTER TABLE global_memories ADD COLUMN {name} {definition}"
+                    )
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_global_memories_active "
+                "ON global_memories(archived, category, importance DESC, updated_at DESC)"
             )
 
     def close(self) -> None:
@@ -200,3 +237,164 @@ class Storage:
                 (session_id, pattern, max(1, min(limit, 50))),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def add_global_memory(
+        self,
+        content: str,
+        source_session_id: str = "",
+        *,
+        category: str = "fact",
+        memory_key: str = "",
+        importance: int = 3,
+        confidence: float = 1.0,
+        source: str = "conversation",
+    ) -> dict[str, Any]:
+        now = utc_now()
+        category = category.strip().lower()[:32] or "fact"
+        memory_key = memory_key.strip().lower()[:120]
+        importance = max(1, min(int(importance), 5))
+        confidence = max(0.0, min(float(confidence), 1.0))
+        with self._lock:
+            existing = None
+            if memory_key:
+                existing = self._connection.execute(
+                    "SELECT id, content, created_at FROM global_memories "
+                    "WHERE archived = 0 AND category = ? AND memory_key = ?",
+                    (category, memory_key),
+                ).fetchone()
+            if existing is None:
+                existing = self._connection.execute(
+                    "SELECT id, content, created_at FROM global_memories "
+                    "WHERE archived = 0 AND lower(content) = lower(?)",
+                    (content,),
+                ).fetchone()
+            if existing:
+                self._connection.execute(
+                    "UPDATE global_memories SET content = ?, importance = ?, confidence = ?, "
+                    "source = ?, updated_at = ?, last_accessed_at = ? WHERE id = ?",
+                    (content, importance, confidence, source, now, now, existing["id"]),
+                )
+                result = dict(existing)
+                result.update({
+                    "content": content,
+                    "category": category,
+                    "memory_key": memory_key,
+                    "importance": importance,
+                    "confidence": confidence,
+                })
+                return result
+            memory = {
+                "id": uuid.uuid4().hex,
+                "content": content,
+                "created_at": now,
+                "category": category,
+                "memory_key": memory_key,
+                "importance": importance,
+                "confidence": confidence,
+            }
+            self._connection.execute(
+                "INSERT INTO global_memories "
+                "(id, content, source_session_id, created_at, updated_at, category, memory_key, "
+                "importance, confidence, source, last_accessed_at, archived) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                (
+                    memory["id"], content, source_session_id, now, now, category, memory_key,
+                    importance, confidence, source, now,
+                ),
+            )
+        return memory
+
+    def list_global_memories(self, limit: int = 100) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, content, created_at, updated_at, category, memory_key, importance, "
+                "confidence, source, last_accessed_at FROM global_memories "
+                "WHERE archived = 0 ORDER BY importance DESC, updated_at DESC LIMIT ?",
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def search_global_memories(self, query: str, limit: int = 10) -> list[dict[str, str]]:
+        terms = [term for term in re.findall(r"[\w'-]{2,}", query.casefold()) if term not in {
+            "what", "when", "where", "which", "that", "this", "with", "have", "from", "about",
+            "tell", "please", "alice", "remember", "forget",
+        }]
+        if not terms:
+            return []
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, content, created_at, updated_at, category, memory_key, importance, "
+                "confidence, source, last_accessed_at FROM global_memories WHERE archived = 0",
+            ).fetchall()
+        now = datetime.now(UTC)
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for row in rows:
+            item = dict(row)
+            haystack = f"{item['content']} {item['memory_key']}".casefold()
+            matches = sum(1 for term in terms if term in haystack)
+            if not matches:
+                continue
+            try:
+                age_days = max(0.0, (now - datetime.fromisoformat(item["updated_at"])).total_seconds() / 86400)
+            except (KeyError, TypeError, ValueError):
+                age_days = 365.0
+            recency = 1.0 / (1.0 + age_days / 30.0)
+            score = matches * 10 + int(item["importance"]) * 1.5 + float(item["confidence"]) + recency
+            ranked.append((score, item))
+        ranked.sort(key=lambda pair: pair[0], reverse=True)
+        results = [item for _, item in ranked[: max(1, min(limit, 50))]]
+        if results:
+            self.touch_global_memories([item["id"] for item in results])
+        return results
+
+    def touch_global_memories(self, memory_ids: list[str]) -> None:
+        if not memory_ids:
+            return
+        now = utc_now()
+        with self._lock:
+            self._connection.executemany(
+                "UPDATE global_memories SET last_accessed_at = ? WHERE id = ? AND archived = 0",
+                [(now, memory_id) for memory_id in memory_ids],
+            )
+
+    def delete_global_memory(self, memory_id: str) -> None:
+        with self._lock:
+            cursor = self._connection.execute(
+                "UPDATE global_memories SET archived = 1, updated_at = ? WHERE id = ? AND archived = 0",
+                (utc_now(), memory_id),
+            )
+        if cursor.rowcount == 0:
+            raise KeyError(f"Unknown memory: {memory_id}")
+
+    def update_global_memory(self, memory_id: str, **changes: Any) -> dict[str, Any]:
+        allowed = {"content", "category", "memory_key", "importance", "confidence"}
+        selected = {key: value for key, value in changes.items() if key in allowed and value is not None}
+        if not selected:
+            raise ValueError("No memory changes supplied")
+        if "content" in selected:
+            selected["content"] = str(selected["content"]).strip()
+            if not selected["content"]:
+                raise ValueError("Memory content is required")
+        if "category" in selected:
+            selected["category"] = str(selected["category"]).strip().lower()[:32] or "fact"
+        if "memory_key" in selected:
+            selected["memory_key"] = str(selected["memory_key"]).strip().lower()[:120]
+        if "importance" in selected:
+            selected["importance"] = max(1, min(int(selected["importance"]), 5))
+        if "confidence" in selected:
+            selected["confidence"] = max(0.0, min(float(selected["confidence"]), 1.0))
+        selected["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = ?" for key in selected)
+        with self._lock:
+            cursor = self._connection.execute(
+                f"UPDATE global_memories SET {assignments} WHERE id = ? AND archived = 0",
+                [*selected.values(), memory_id],
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(f"Unknown memory: {memory_id}")
+            row = self._connection.execute(
+                "SELECT id, content, created_at, updated_at, category, memory_key, importance, "
+                "confidence, source, last_accessed_at FROM global_memories WHERE id = ?",
+                (memory_id,),
+            ).fetchone()
+        return dict(row)

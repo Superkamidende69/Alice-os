@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-ProviderKind = Literal["ollama", "openai"]
+ProviderKind = Literal["ollama", "localai", "openai", "cluster"]
 
 
 class ProviderProfile(BaseModel):
@@ -23,7 +23,8 @@ class ProviderProfile(BaseModel):
 
 
 class AppSettings(BaseModel):
-    active_provider_id: str = "ollama"
+    active_provider_id: str = "localai"
+    active_model: str = ""
     providers: list[ProviderProfile] = Field(default_factory=list)
 
 

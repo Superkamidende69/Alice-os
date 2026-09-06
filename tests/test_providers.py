@@ -144,3 +144,34 @@ async def test_openai_tool_rejection_raises_compatibility_error(
             messages=[{"role": "user", "content": "hello"}],
             tools=[{"type": "function", "function": {"name": "test"}}],
         )
+
+
+@pytest.mark.asyncio
+async def test_localai_uses_openai_compatible_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+            b"data: [DONE]\n\n",
+        )
+
+    install_transport(monkeypatch, handler)
+    profile = ProviderProfile(
+        id="localai",
+        name="LocalAI (local)",
+        kind="localai",
+        base_url="http://127.0.0.1:8080",
+    )
+
+    turn = await providers.chat(
+        profile,
+        model="qwen",
+        messages=[{"role": "user", "content": "hello"}],
+    )
+
+    assert captured["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+    assert turn.content == "Hello"

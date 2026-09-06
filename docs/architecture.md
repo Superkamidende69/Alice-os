@@ -7,7 +7,7 @@ output are treated as untrusted data by the system prompt.
 ## Design goals
 
 - Local-first operation with a loopback-only web service.
-- Model portability through Ollama and the OpenAI Chat Completions shape.
+- Model portability through LocalAI, Ollama, and the OpenAI Chat Completions shape.
 - A Codex-style observe/act/verify loop without tying the core to one model.
 - Explicit approval for mutating tools.
 - A hard path boundary around the user-selected workspace.
@@ -37,6 +37,7 @@ FastAPI application (api.py)
            |                              workspace + process + memory tools
            |
            +--> providers.py
+                    |--> LocalAI /v1/chat/completions
                     |--> Ollama /api/chat
                     +--> OpenAI-compatible /v1/chat/completions
 ```
@@ -51,14 +52,19 @@ browser and operating system.
 The `alice` console entry point and `python -m alice_os` both call
 `alice_os.cli:main`. The CLI accepts:
 
-- `--host`, limited to `127.0.0.1` or `localhost`.
-- `--port`, default `7788`.
+- `--host`, loopback by default; the launcher uses `0.0.0.0` for explicit LAN mode.
+- `--port`, default `7788` for HTTP or `443` for HTTPS.
+- `--lan`, LAN HTTPS with an HTTP-to-HTTPS redirect on port 80.
 - `--no-browser`.
+- `--https`, serve with Alice's locally generated TLS certificate.
+- `--hostname`, the LAN name to advertise and include in the certificate.
 
-Regardless of the accepted host spelling, Uvicorn binds to `127.0.0.1`. The
-supplied start scripts set `ALICE_HOME` to `<project>/.alice-data` unless the
-caller already supplied it, load literal variables from `.env`, and invoke the
-module from the repository root.
+In default mode the launcher starts the browser against the loopback address.
+The explicit network launcher mode advertises `aliceos.local` over mDNS and can
+serve HTTPS without a reverse proxy or Docker. The supplied start scripts set
+`ALICE_HOME` to `<project>/.alice-data` unless the caller already supplied it,
+load literal variables from `.env`, and invoke the module from the repository
+root.
 
 Without an override, `default_data_dir()` uses:
 
@@ -72,17 +78,19 @@ provider is:
 
 ```json
 {
-  "id": "ollama",
-  "name": "Ollama (local)",
-  "kind": "ollama",
-  "base_url": "http://127.0.0.1:11434",
+  "id": "localai",
+  "name": "LocalAI (local)",
+  "kind": "localai",
+  "base_url": "http://127.0.0.1:8080",
   "default_model": "",
   "api_key_env": ""
 }
 ```
 
 Configuration saves use a temporary file followed by replacement. The built-in
-Ollama profile can be updated but cannot be deleted.
+LocalAI and Ollama profiles can be updated but cannot be deleted. Existing
+settings files are migrated by adding LocalAI as the active provider and moving
+the bundled llama.cpp profile to port 8081.
 
 ## HTTP surface
 
@@ -94,6 +102,8 @@ Every other API route below requires the random process token through the
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `GET` | `/` | Serve the UI and set the session cookie. |
+| `GET` | `/voice` | Serve the dedicated full-screen Voice Studio UI. |
+| `GET` | `/models` | Serve the dedicated full-screen model-management UI. |
 | `GET` | `/api/health` | Return status and application version. |
 | `GET` | `/api/state` | Return providers, sessions, runtime state, and privacy summary. |
 | `POST` | `/api/providers` | Create or replace a provider profile. |
@@ -108,9 +118,12 @@ Every other API route below requires the random process token through the
 | `GET` | `/api/runs/{run_id}/events` | Stream ordered Server-Sent Events. |
 | `POST` | `/api/runs/{run_id}/approval` | Approve or deny a pending tool call. |
 | `POST` | `/api/runs/{run_id}/cancel` | Cancel a live run. |
-| `GET` | `/api/runtime/status` | Check local Ollama installation/service/models. |
-| `POST` | `/api/gguf/import` | Generate a Modelfile and run `ollama create`. |
+| `GET` | `/api/runtime/status` | Check LocalAI, Ollama, and llama.cpp runtime status. |
+| `POST` | `/api/gguf/import` | Install a local GGUF into LocalAI and write its `llama-cpp` YAML definition. |
 | `POST` | `/api/models/pull` | Run `ollama pull`. |
+| `GET` | `/api/voice/status` | Return Alice voice readiness and the VAD → transcription → LLM → TTS pipeline. |
+| `POST` | `/v1/audio/speech` | Protected OpenAI/LocalAI-shaped local TTS; currently returns WAV. |
+| `POST` | `/tts` | Alias for the local TTS endpoint. |
 
 Static files are mounted under `/static` and still pass through the trusted-host
 middleware.
@@ -141,6 +154,61 @@ to replay events after a known sequence. Event names include `status`, `token`,
 messages remain in SQLite after restart.
 
 ## Provider adapters
+
+### Alice voice pipeline
+
+Alice follows the same useful pipeline shape as LocalAI's realtime voice flow,
+but keeps every runtime under Alice's control:
+
+```text
+microphone -> WebRTC VAD -> speech transcription -> Alice LLM SSE -> clause queue -> OpenVoice/MeloTTS
+```
+
+VAD runs in Alice's authenticated WebSocket and the LLM is the selected Alice
+provider. Spoken replies are clause-chunked while the model streams, so the
+first complete clause can be synthesized before the full answer finishes.
+Alice exposes `/v1/audio/speech` and `/tts` as protected OpenAI/LocalAI-shaped
+TTS endpoints; both call the existing Alice voice queue and do not start a
+LocalAI service.
+
+Transcription is currently the browser's Web Speech API. That keeps setup
+download-free, but it is not guaranteed to be local or available on every
+Android/browser combination. The server-side VAD does not save microphone
+audio. A local Whisper stage remains a separate future backend choice because
+it needs a speech model and its own memory/VRAM budget.
+
+### Local voice input and cancellation
+
+`web/voice-input.js` owns an opt-in microphone stream and a 16 kHz AudioContext.
+`web/voice-capture.js` sends 60 ms PCM16 packets to `/api/voice/activity`.
+The WebSocket verifies the process session token and exact browser origin before
+accepting binary audio. `vad.py` applies WebRTC VAD with speech onset and silence
+hysteresis, returning only speech-start/end events. Audio is not persisted.
+
+Speech requests may carry a unique `request_id`. `/api/voice/cancel` marks that
+request interrupted, including when cancellation arrives before synthesis.
+The API returns 409 for interrupted synthesis and never caches its result.
+A temporary cancellation marker crosses the Python 3.13/3.10 runtime boundary;
+the worker checks it between bounded TTS segments and voice conversion stages.
+The client separately aborts its fetch, clears playback queues, and rejects
+responses belonging to an old conversation. Interruption does not cancel the
+text/tool run. `scripts/voice_speech.py` is shared by the persistent worker and
+one-shot fallback, keeping text cleanup, phrasing, and segment cleanup consistent.
+
+The fallback is used for worker startup failures only. A synthesis failure must
+not start a duplicate inference. In-flight native inference stops cooperatively,
+so playback interruption can precede worker completion.
+
+### LocalAI
+
+Alice owns the LocalAI-compatible model-management layer. It reads the LocalAI
+gallery format, measures remote files, applies hardware-fit estimates, downloads
+with resumable progress and checksum verification, writes compatible model
+definitions, and removes managed files under `<ALICE_HOME>/models/localai`.
+No LocalAI service is needed for those operations. The legacy LocalAI
+OpenAI-compatible adapter remains available only when a user explicitly runs a
+LocalAI service; Alice's database and personal memory remain outside the model
+directory.
 
 ### Ollama
 
@@ -213,8 +281,9 @@ SQLite uses WAL mode, foreign keys, and a process-local reentrant lock. Tables:
 - `memories`: concise conversation-scoped durable facts.
 
 Deleting a session cascades to messages and memories. Database content and
-settings are plaintext. Generated import Modelfiles live next to the database;
-model weights remain managed by Ollama and/or their original source location.
+settings are plaintext. LocalAI model definitions and imported GGUF files live
+under `<ALICE_HOME>/models/localai`; downloaded Hugging Face repositories remain
+under `<ALICE_HOME>/models/huggingface`. Ollama keeps its own model store.
 
 ## Runtime operations
 
@@ -222,10 +291,11 @@ model weights remain managed by Ollama and/or their original source location.
 local version and tags endpoints with a two-second timeout.
 
 Model pull invokes `ollama pull <sanitized-model>` and permits up to one hour.
-GGUF import verifies a real `.gguf`, creates a Modelfile with an absolute source
-path and `num_ctx 8192`, then permits `ollama create` up to 30 minutes. Captured
-subprocess output is truncated to the last 8,000 characters before it is
-returned.
+GGUF import verifies a real `.gguf`, copies it into LocalAI's model directory,
+and writes a `llama-cpp` YAML definition with an 8192-token context. The
+explicit Ollama compatibility path still creates a Modelfile and runs
+`ollama create`; captured subprocess output is truncated to the last 8,000
+characters before it is returned.
 
 ## Extension points
 
