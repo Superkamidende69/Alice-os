@@ -27,6 +27,62 @@ def test_inventory_includes_nested_and_huggingface_files(tmp_path):
     assert all(item["status"] == "Downloaded" for item in items)
 
 
+async def test_safetensors_companion_is_visible_but_cannot_replace_running_model(tmp_path):
+    directory = tmp_path / "models/huggingface/google--gemma-4-31B-it-assistant"
+    directory.mkdir(parents=True)
+    (directory / "config.json").write_text('{"model_type":"gemma4_assistant"}')
+    (directory / "model.safetensors").write_bytes(b"test weights")
+    manager = ModelManager(ConfigStore(tmp_path))
+    manager.loaded_path = AsyncMock(return_value="")
+    manager.owned_listener = Mock()
+    item = (await manager.list())[0]
+    assert item["name"] == "google/gemma-4-31B-it-assistant"
+    assert item["loadable"] is False and item["ready"] is False
+    assert "Companion" in item["status"]
+    with pytest.raises(RuntimeOperationError, match="not a standalone"):
+        await manager.load(item["model_path"])
+    with pytest.raises(RuntimeOperationError, match="Select a downloaded GGUF"):
+        await manager.delete(item["model_path"])
+    manager.owned_listener.assert_not_called()
+    assert (directory / "model.safetensors").is_file()
+
+
+def test_unrecognized_safetensors_and_bad_config_stay_visible(tmp_path):
+    directory = tmp_path / "models/huggingface/example--model"
+    directory.mkdir(parents=True)
+    (directory / "config.json").write_text("invalid json")
+    (directory / "model.safetensors").write_bytes(b"weights")
+    cache = directory / ".cache"
+    cache.mkdir()
+    (cache / "partial.safetensors").write_bytes(b"ignore")
+    item = inventory(tmp_path)[0]
+    assert item["size"] == 7
+    assert item["loadable"] is False
+    assert "runtime required" in item["status"]
+
+
+async def test_janus_inventory_and_ready_service_register_provider(tmp_path, monkeypatch):
+    directory = tmp_path / "models/huggingface/deepseek-community--Janus-Pro-1B"
+    directory.mkdir(parents=True)
+    (directory / "config.json").write_text('{"model_type":"janus"}')
+    (directory / "model.safetensors").write_bytes(b"test")
+    item = inventory(tmp_path)[0]
+    assert item["loadable"] and item["runtime"] == "janus"
+    manager = ModelManager(ConfigStore(tmp_path))
+    manager.janus_ready = AsyncMock(return_value=True)
+    spawn = Mock()
+    monkeypatch.setattr(module.subprocess, "Popen", spawn)
+    result = await manager.load(item["model_path"])
+    assert result["provider_id"] == "janus_local"
+    assert manager.config.get_provider("janus_local").base_url == "http://127.0.0.1:8082/v1"
+    assert manager.config.get().active_model == "Janus-Pro-1B"
+    spawn.assert_not_called()
+    manager.loaded_path = AsyncMock(return_value="")
+    with pytest.raises(RuntimeOperationError, match="GGUF"):
+        await manager.delete(item["model_path"])
+    assert directory.is_dir()
+
+
 async def test_loaded_file_cannot_be_deleted(tmp_path, monkeypatch):
     path = model_file(tmp_path)
     manager = ModelManager(ConfigStore(tmp_path))
@@ -103,7 +159,7 @@ async def test_failed_model_does_not_update_selection(tmp_path, monkeypatch):
     monkeypatch.setattr(module.subprocess, "Popen", Mock(return_value=child))
     with pytest.raises(RuntimeOperationError, match="failed to load"):
         await manager.load("localai/nested/test.gguf")
-    assert manager.config.get().active_provider_id == "localai"
+    assert manager.config.get().active_provider_id == "llama_cpp_local"
     assert not (tmp_path / "loaded-model.txt").exists()
 
 

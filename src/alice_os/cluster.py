@@ -29,7 +29,7 @@ from .secure_store import SecretStore
 
 class WorkerSettings(BaseModel):
     enabled: bool = False
-    provider_id: str = "ollama"
+    provider_id: str = "llama_cpp_local"
     max_parallel: int = Field(default=1, ge=1, le=8)
 
 
@@ -43,6 +43,25 @@ class PairRequest(BaseModel):
 
 
 class JoinRequest(PairRequest):
+    url: str = Field(max_length=500)
+    ca_pem: str = Field(default="", max_length=20000)
+
+
+class NetworkJoinRequest(JoinRequest):
+    """A controller-side request to enrol a worker using the owner's account."""
+
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class JoinNetworkRequest(BaseModel):
+    """A worker asks an existing controller to pair it without manual codes."""
+
+    controller_url: str = Field(max_length=500)
+    controller_ca_pem: str = Field(default="", max_length=20000)
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=80)
     url: str = Field(max_length=500)
     ca_pem: str = Field(default="", max_length=20000)
 
@@ -199,7 +218,7 @@ class Cluster:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-def mount_cluster(app: FastAPI, cluster: Cluster, require_session):
+def mount_cluster(app: FastAPI, cluster: Cluster, require_session, verify_network_login=None):
     admin = [Depends(require_session)]
 
     def require_tls(request: Request):
@@ -259,21 +278,8 @@ def mount_cluster(app: FastAPI, cluster: Cluster, require_session):
         cluster.pair_expires = time.monotonic() + 300
         return {"code": code, "expires_in": 300}
 
-    @app.post("/api/cluster/worker/pair")
-    async def accept_pair(body: PairRequest, request: Request):
-        require_tls(request)
-        if ((not cluster.data["worker"]["enabled"] and not cluster.gpu.status()["running"]) or not cluster.pair_hash
-                or time.monotonic() >= cluster.pair_expires
-                or not hmac.compare_digest(digest(body.code), cluster.pair_hash)):
-            raise HTTPException(401, "Pairing code is invalid or expired")
-        cluster.pair_hash = ""
-        identity, token = secrets.token_hex(16), secrets.token_urlsafe(32)
-        cluster.data["controllers"][identity] = {"name": body.name, "hash": digest(token)}
-        cluster.save()
-        return {"token": token, "controller_id": identity, "protocol": 1}
-
-    @app.post("/api/cluster/nodes", dependencies=admin)
-    async def join(body: JoinRequest):
+    async def pair_worker(body: JoinRequest) -> dict:
+        """Pair a worker and persist only its generated bearer credential."""
         try:
             url = validate_worker_url(body.url)
             if any(node["url"] == url for node in cluster.data["nodes"].values()):
@@ -293,8 +299,61 @@ def mount_cluster(app: FastAPI, cluster: Cluster, require_session):
             cluster.config.upsert_provider(ProviderProfile(
                 id=identity, name=f"Worker: {body.name}", kind="cluster", base_url=url))
             return {"id": identity}
+        except HTTPException:
+            raise
         except (httpx.HTTPError, ValueError, KeyError, ssl.SSLError) as error:
             raise HTTPException(400, "Pairing failed. Check HTTPS address, trusted CA and fresh pairing code.") from error
+
+    @app.post("/api/cluster/worker/pair")
+    async def accept_pair(body: PairRequest, request: Request):
+        require_tls(request)
+        if ((not cluster.data["worker"]["enabled"] and not cluster.gpu.status()["running"]) or not cluster.pair_hash
+                or time.monotonic() >= cluster.pair_expires
+                or not hmac.compare_digest(digest(body.code), cluster.pair_hash)):
+            raise HTTPException(401, "Pairing code is invalid or expired")
+        cluster.pair_hash = ""
+        identity, token = secrets.token_hex(16), secrets.token_urlsafe(32)
+        cluster.data["controllers"][identity] = {"name": body.name, "hash": digest(token)}
+        cluster.save()
+        return {"token": token, "controller_id": identity, "protocol": 1}
+
+    @app.post("/api/cluster/nodes", dependencies=admin)
+    async def join(body: JoinRequest):
+        return await pair_worker(body)
+
+    @app.post("/api/cluster/network/join")
+    async def accept_network_join(body: NetworkJoinRequest, request: Request):
+        """Let a new worker join with the existing controller account over HTTPS."""
+        require_tls(request)
+        if verify_network_login is None or not verify_network_login(body.username, body.password):
+            raise HTTPException(401, "Invalid controller username or password")
+        return await pair_worker(JoinRequest(name=body.name, url=body.url, code=body.code, ca_pem=body.ca_pem))
+
+    @app.post("/api/cluster/join-network", dependencies=admin)
+    async def join_network(body: JoinNetworkRequest, request: Request):
+        """Create a short-lived local code and have the signed-in controller consume it."""
+        require_tls(request)
+        if not cluster.data["worker"]["enabled"] and not cluster.gpu.status()["running"]:
+            raise HTTPException(400, "Enable inference or GPU sharing before joining a network")
+        try:
+            controller_url = validate_worker_url(body.controller_url)
+            worker_url = validate_worker_url(body.url)
+            code = secrets.token_urlsafe(24)
+            cluster.pair_hash = digest(code)
+            cluster.pair_expires = time.monotonic() + 300
+            controller = {"url": controller_url, "ca_pem": body.controller_ca_pem}
+            async with cluster.client(controller) as client:
+                response = await client.post(
+                    "/api/cluster/network/join",
+                    json={"username": body.username, "password": body.password, "name": body.name,
+                          "url": worker_url, "ca_pem": body.ca_pem, "code": code}, timeout=20,
+                )
+                response.raise_for_status()
+            return {"connected": True, "controller": controller_url}
+        except HTTPException:
+            raise
+        except (httpx.HTTPError, ValueError, ssl.SSLError) as error:
+            raise HTTPException(400, "Could not join the controller. Check its HTTPS address, certificate, account, and that this worker is reachable.") from error
 
     @app.delete("/api/cluster/nodes/{identity}", dependencies=admin)
     async def forget(identity: str):

@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from alice_os import cluster as module
 from alice_os.api import create_app
+from alice_os.auth import create_auth_file
 from alice_os.cluster import Cluster, mount_cluster, validate_worker_url
 from alice_os.config import ConfigStore
 from alice_os.models import AssistantTurn, ProviderProfile, ToolCall
@@ -173,6 +174,45 @@ async def test_controller_worker_integration_and_agent_run(tmp_path, monkeypatch
         with pytest.raises(ProviderError):
             await controller.list_models(profile)
     await controller_app.state.runs.shutdown()
+    controller_app.state.storage.close()
+
+
+async def test_worker_can_join_existing_network_with_controller_account(tmp_path, monkeypatch):
+    """The worker password is only forwarded to the controller for this join."""
+    worker_app = create_app(tmp_path / "worker")
+    create_auth_file(tmp_path / "controller" / "network-auth.json", "main", "a long test password")
+    controller_app = create_app(tmp_path / "controller")
+
+    async def models(profile):
+        return ["tiny-model"]
+
+    monkeypatch.setattr(module, "list_models", models)
+
+    def in_memory_client(self, node):
+        target = controller_app if node["url"] == "https://controller" else worker_app
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=target), base_url=node["url"])
+
+    monkeypatch.setattr(Cluster, "client", in_memory_client)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=worker_app), base_url="https://testserver") as client:
+        await client.get("/cluster")
+        configured = await client.put("/api/cluster/worker", json={"enabled": True, "provider_id": "localai"})
+        assert configured.status_code == 200, configured.text
+        joined = await client.post("/api/cluster/join-network", json={
+            "controller_url": "https://controller", "username": "main", "password": "a long test password",
+            "name": "New GPU", "url": "https://testserver", "ca_pem": "",
+        })
+        assert joined.status_code == 200, joined.text
+        assert joined.json()["connected"] is True
+
+    controller = controller_app.state.cluster
+    worker = worker_app.state.cluster
+    assert len(controller.data["nodes"]) == 1
+    assert len(worker.data["controllers"]) == 1
+    assert "a long test password" not in worker.path.read_text()
+    assert "a long test password" not in controller.path.read_text()
+    await worker_app.state.runs.shutdown()
+    await controller_app.state.runs.shutdown()
+    worker_app.state.storage.close()
     controller_app.state.storage.close()
 
 

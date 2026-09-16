@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,18 @@ from .storage import Storage
 from .tools import ToolContext, ToolError, ToolRegistry
 
 MAX_AGENT_STEPS = 12
+MAX_RUN_EVENTS = 2048
+MAX_RETAINED_RUNS = 64
+MAX_ACTIVE_RUNS = 8
+RUN_RETENTION_SECONDS = 30 * 60
+
+
+class RunConflictError(RuntimeError):
+    pass
+
+
+class RunCapacityError(RuntimeError):
+    pass
 
 SYSTEM_PROMPT = """You are Alice, a local-first personal AI operator.
 
@@ -50,32 +64,45 @@ class RunEvent:
 class AgentRun:
     id: str
     session_id: str
-    events: list[RunEvent] = field(default_factory=list)
+    events: deque[RunEvent] = field(default_factory=lambda: deque(maxlen=MAX_RUN_EVENTS))
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     approval_futures: dict[str, asyncio.Future[bool]] = field(default_factory=dict)
     terminal: bool = False
     task: asyncio.Task[None] | None = None
+    sequence: int = 0
+    finished_at: float | None = None
 
     async def emit(self, name: str, **data: Any) -> None:
         async with self.condition:
-            event = RunEvent(len(self.events) + 1, name, data)
+            if self.terminal:
+                return
+            self.sequence += 1
+            event = RunEvent(self.sequence, name, data)
             self.events.append(event)
             if name in {"done", "error", "cancelled"}:
                 self.terminal = True
+                self.finished_at = time.monotonic()
             self.condition.notify_all()
 
     async def stream(self, after: int = 0):
         cursor = max(0, after)
         while True:
             async with self.condition:
-                while cursor >= len(self.events) and not self.terminal:
+                while cursor >= self.sequence and not self.terminal:
                     await self.condition.wait()
-                available = self.events[cursor:]
-                cursor = len(self.events)
+                available = [event for event in self.events if event.sequence > cursor]
+                if available and cursor < available[0].sequence - 1:
+                    available.insert(0, RunEvent(
+                        available[0].sequence - 1,
+                        "history_gap",
+                        {"session_id": self.session_id,
+                         "message": "Earlier live events expired. The conversation is saved locally."},
+                    ))
+                cursor = max(cursor, self.sequence)
                 terminal = self.terminal
             for event in available:
                 yield event
-            if terminal and cursor >= len(self.events):
+            if terminal:
                 break
 
 
@@ -93,6 +120,23 @@ class RunManager:
         self.skills = skills or SkillStore(config.data_dir)
         self.runs: dict[str, AgentRun] = {}
         self.cluster = None
+        self.closing = False
+
+    def active_for_session(self, session_id: str) -> AgentRun | None:
+        return next((run for run in self.runs.values()
+                     if run.session_id == session_id and not run.terminal), None)
+
+    def prune(self) -> None:
+        """Keep a bounded replay window without evicting work that is still running."""
+        cutoff = time.monotonic() - RUN_RETENTION_SECONDS
+        finished = sorted(
+            (run for run in self.runs.values() if run.finished_at is not None),
+            key=lambda run: run.finished_at or 0,
+        )
+        for run in finished:
+            if len(self.runs) <= MAX_RETAINED_RUNS and (run.finished_at or 0) >= cutoff:
+                break
+            self.runs.pop(run.id, None)
 
     def start(
         self,
@@ -103,8 +147,18 @@ class RunManager:
         model: str,
         agent_mode: bool,
         skill_id: str = "general",
+        response_depth: str = "balanced",
     ) -> AgentRun:
         self.storage.get_session(session_id, include_messages=False)
+        skill = self.skills.get(skill_id)
+        self.config.get_provider(provider_id)
+        if self.closing:
+            raise RunCapacityError("Alice is shutting down. Retry after the system restarts.")
+        if self.active_for_session(session_id):
+            raise RunConflictError("This conversation already has a running task. Stop it or wait for it to finish.")
+        if sum(not run.terminal for run in self.runs.values()) >= MAX_ACTIVE_RUNS:
+            raise RunCapacityError("Alice is at its active task limit. Wait for a task to finish.")
+        self.prune()
         run = AgentRun(id=uuid.uuid4().hex, session_id=session_id)
         self.runs[run.id] = run
         run.task = asyncio.create_task(
@@ -114,13 +168,15 @@ class RunManager:
                 provider_id=provider_id,
                 model=model,
                 agent_mode=agent_mode,
-                skill=self.skills.get(skill_id),
+                skill=skill,
+                response_depth=response_depth,
             ),
             name=f"alice-run-{run.id}",
         )
         return run
 
     def get(self, run_id: str) -> AgentRun:
+        self.prune()
         try:
             return self.runs[run_id]
         except KeyError as error:
@@ -137,15 +193,25 @@ class RunManager:
         run = self.get(run_id)
         if run.task and not run.task.done():
             run.task.cancel()
+            await asyncio.gather(run.task, return_exceptions=True)
+        # A task cancelled before its coroutine starts never reaches _execute's handler.
+        if not run.terminal:
+            self._clear_approvals(run)
+            await run.emit("cancelled", status="cancelled")
 
     async def shutdown(self) -> None:
-        tasks: list[asyncio.Task[None]] = []
-        for run in self.runs.values():
-            if run.task and not run.task.done():
-                run.task.cancel()
-                tasks.append(run.task)
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        self.closing = True
+        await asyncio.gather(
+            *(self.cancel(run.id) for run in list(self.runs.values()) if not run.terminal),
+            return_exceptions=True,
+        )
+
+    @staticmethod
+    def _clear_approvals(run: AgentRun) -> None:
+        for future in run.approval_futures.values():
+            if not future.done():
+                future.cancel()
+        run.approval_futures.clear()
 
     async def _execute(
         self,
@@ -156,9 +222,12 @@ class RunManager:
         model: str,
         agent_mode: bool,
         skill: AgentSkill,
+        response_depth: str = "balanced",
     ) -> None:
         try:
             profile = self.config.get_provider(provider_id)
+            if profile.id == "janus_local":
+                agent_mode = False  # This endpoint supports text, not native/fallback tools.
             session = self.storage.get_session(run.session_id, include_messages=False)
             workspace = Path(session["workspace"] or Path.cwd()).expanduser().resolve()
             if not workspace.exists() or not workspace.is_dir():
@@ -181,6 +250,12 @@ class RunManager:
             repeated_calls: dict[str, int] = {}
             for step in range(1, MAX_AGENT_STEPS + 1):
                 messages = self._provider_messages(run.session_id, fallback_protocol, skill)
+                depth_instruction = {
+                    "quick": "Prefer a brief, direct answer. Keep essential safety warnings and necessary checks.",
+                    "thorough": "Give a thorough answer with useful explanation, checks, tradeoffs, and relevant caveats. Avoid padding.",
+                }.get(response_depth)
+                if depth_instruction:
+                    messages[0]["content"] += "\n\nResponse depth preference (follow explicit user length requests first): " + depth_instruction
 
                 async def emit_token(token: str) -> None:
                     await run.emit("token", text=token, step=step)
@@ -273,6 +348,9 @@ class RunManager:
             await run.emit(
                 "error", message=f"Unexpected agent error: {error}", type=type(error).__name__
             )
+        finally:
+            self._clear_approvals(run)
+            self.prune()
 
     def _provider_messages(self, session_id: str, fallback_protocol: bool, skill: AgentSkill) -> list[dict[str, Any]]:
         system = f"{SYSTEM_PROMPT}\n\nActive skill: {skill.name}\n{skill.instructions}"
@@ -349,8 +427,10 @@ class RunManager:
                 preview=preview,
                 fingerprint=fingerprint,
             )
-            approved = await future
-            run.approval_futures.pop(call.id, None)
+            try:
+                approved = await future
+            finally:
+                run.approval_futures.pop(call.id, None)
             if not approved:
                 result = json.dumps({"error": "The user denied this tool call."})
                 await run.emit(

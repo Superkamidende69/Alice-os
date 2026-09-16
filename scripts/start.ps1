@@ -11,8 +11,6 @@ param(
 
     [string]$Hostname = "aliceos.local",
 
-    [switch]$NoOllama,
-
     [switch]$NoLocalAI,
 
     [switch]$UseLocalAI,
@@ -222,52 +220,6 @@ function Start-AliceLocalAIService {
     Write-Warning "LocalAI container started but did not become ready. Run 'docker logs $containerName'."
 }
 
-function Start-AliceOllamaService {
-    param(
-        [Parameter(Mandatory = $true)][string]$DataDirectory
-    )
-
-    try {
-        $null = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/version" -TimeoutSec 2
-        Write-Host "Ollama service is already running at http://127.0.0.1:11434"
-        return
-    }
-    catch {
-        # Start the local service below when it is installed but not running.
-    }
-
-    $ollama = Get-Command "ollama" -ErrorAction SilentlyContinue
-    if (-not $ollama) {
-        Write-Warning "Ollama was not found; Alice will start without its built-in Ollama provider."
-        return
-    }
-
-    $logDirectory = Join-Path $DataDirectory "logs"
-    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-    $stdout = Join-Path $logDirectory "ollama.log"
-    $stderr = Join-Path $logDirectory "ollama.err.log"
-    Start-Process -FilePath $ollama.Source -ArgumentList @("serve") -WorkingDirectory $DataDirectory -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
-
-    $ready = $false
-    for ($attempt = 0; $attempt -lt 20; $attempt++) {
-        Start-Sleep -Milliseconds 500
-        try {
-            $null = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/version" -TimeoutSec 2
-            $ready = $true
-            break
-        }
-        catch {
-            # Ollama may need a few seconds to initialize.
-        }
-    }
-    if ($ready) {
-        Write-Host "Started Ollama service at http://127.0.0.1:11434"
-    }
-    else {
-        Write-Warning "Ollama was found but did not become ready; Alice will still start."
-    }
-}
-
 if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
     throw "Alice's virtual environment is missing. Run .\scripts\setup.ps1 first."
 }
@@ -280,15 +232,9 @@ if (Test-Path -LiteralPath $envFile -PathType Leaf) {
 if ($LASTEXITCODE -ne 0) { throw "Alice first-install setup failed." }
 $env:ALICE_HOME = (& $venvPython -c "from alice_os.config import default_data_dir; print(default_data_dir())").Trim()
 if ($LASTEXITCODE -ne 0) { throw "Could not resolve Alice data directory." }
-$env:OLLAMA_MODELS = Join-Path $env:ALICE_HOME "models\ollama"
-
 if ($Network) {
     $env:ALICE_NETWORK_MODE = "1"
     New-Item -ItemType Directory -Path $env:ALICE_HOME -Force | Out-Null
-}
-
-if (-not $NoOllama) {
-    Start-AliceOllamaService -DataDirectory $env:ALICE_HOME
 }
 
 if ($UseLocalAI -and -not $NoLocalAI) {

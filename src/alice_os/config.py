@@ -6,9 +6,12 @@ import threading
 from pathlib import Path
 
 from .models import AppSettings, ProviderProfile
+from .paths import bundled
 
 
 def installation_file() -> Path:
+    if bundled() and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "AliceOS" / ".alice-install.json"
     return Path(__file__).resolve().parents[2] / ".alice-install.json"
 
 
@@ -27,7 +30,8 @@ def default_data_dir() -> Path:
     if (legacy / "settings.json").is_file():
         return legacy.resolve()
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
-        return Path(os.environ["LOCALAPPDATA"]) / "AliceOS"
+        base = Path(os.environ["LOCALAPPDATA"]) / "AliceOS"
+        return base / "data" if bundled() else base
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
         return Path(xdg).expanduser() / "alice-os"
@@ -47,8 +51,15 @@ def _latest_managed_gguf(data_dir: Path) -> Path | None:
 
 def default_settings() -> AppSettings:
     return AppSettings(
-        active_provider_id="localai",
+        active_provider_id="llama_cpp_local",
         providers=[
+            ProviderProfile(
+                id="llama_cpp_local",
+                name="llama.cpp (Alice managed)",
+                kind="openai",
+                base_url="http://127.0.0.1:8081/v1",
+                default_model="",
+            ),
             ProviderProfile(
                 id="localai",
                 name="LocalAI (local)",
@@ -85,8 +96,20 @@ class ConfigStore:
         except (OSError, ValueError, json.JSONDecodeError):
             return default_settings()
         # Existing Alice installations keep their custom providers and history,
-        # but gain the built-in LocalAI target during the provider migration.
+        # but gain Alice's managed llama.cpp target during the provider migration.
         changed = False
+        if not any(provider.id == "llama_cpp_local" for provider in settings.providers):
+            settings.providers.insert(
+                0,
+                ProviderProfile(
+                    id="llama_cpp_local",
+                    name="llama.cpp (Alice managed)",
+                    kind="openai",
+                    base_url="http://127.0.0.1:8081/v1",
+                    default_model="",
+                ),
+            )
+            changed = True
         if not any(provider.id == "localai" for provider in settings.providers):
             settings.providers.insert(
                 0,
@@ -99,8 +122,8 @@ class ConfigStore:
                 ),
             )
             changed = True
-        if settings.active_provider_id == "ollama":
-            settings.active_provider_id = "localai"
+        if settings.active_provider_id in {"ollama", "localai"}:
+            settings.active_provider_id = "llama_cpp_local"
             settings.active_model = ""
             changed = True
         managed_model = _latest_managed_gguf(self.data_dir)

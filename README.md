@@ -1,5 +1,153 @@
 # Alice OS
 
+## Interface refresh
+
+Models and Voice each have one navigation entry in the sidebar. Model selection
+and refresh now live on the Models page. Chat keeps hands-free and dictation
+within reach, with workspace, skill, and additional speech controls under
+Conversation options. Playback activity moved to an expandable section in Voice,
+and conversation/wake settings are grouped below the primary audio controls.
+The shared visual theme uses charcoal surfaces, sage accents, larger typography,
+and reduced decoration. Refresh your browser after updating; rebuild packaged
+EXEs to include the new web assets.
+
+## Command center upgrade
+
+Alice now has a navy-and-cyan command center, an animated core that follows real
+listening/working/playback state, responsive layouts, and an updated Voice Studio.
+Press **Ctrl K** (or **Cmd K**) for searchable commands: new conversation, workspace,
+models, voice settings, system health, stop speaking, and cancel response.
+
+**System health** reports the actual Alice connection, selected model readiness,
+voice installation, CPU load and core counts, RAM use, GPU load/VRAM/temperature
+(NVIDIA driver telemetry, with power draw when supported), local drive capacity
+and free space, and process uptime. These are readings from the Alice host;
+unavailable GPU sensors remain explicitly unavailable. Hardware readings refresh
+with the panel every 15 seconds and share a short server cache. The authenticated
+`GET /api/system/status` also exposes active runs, pending approvals, data-drive
+space, and actionable alerts. Provider probes are time-bounded and cached; an
+advertised model is not a guarantee that generation will succeed. Health checks
+pause in hidden tabs and retry with backoff when the core is unavailable.
+
+### Hands-free conversation
+
+Voice Studio's **Your audio setup** card now includes a saved microphone selector,
+background-noise reduction, reply volume, and a live 15-second microphone level
+test. The test stays in the browser: it does not record, upload, or play your
+microphone through speakers. Local dictation, interruption detection and hands-free
+use the selected input. Browser speech recognition uses the browser's default
+microphone. Changing input settings stops listening; start again when ready.
+
+Spoken replies omit fenced code and Markdown decoration while preserving the full
+chat transcript. The first phrase is limited to 120 characters so long unpunctuated
+answers can begin synthesis sooner. Reply volume is remembered, including zero.
+OpenVoice splits short sentences and comma-separated clauses too, adding explicit
+160 ms comma pauses and 320 ms period pauses to the generated audio, including
+the end of streamed clips. Questions, exclamations and ellipses have their own
+pauses; decimals, thousands separators and common abbreviations stay together.
+Manually resuming a paused or blocked final clip now releases follow-up listening
+when it ends. Hands-free shows the last recognized utterance and the server's
+measured recognition time. This timing excludes speaking, model generation and TTS.
+
+In chat, select a model and click **Hands-free** to start the microphone and spoken
+replies. Say **“Hey Alice, …”** or your saved **“Hey Jarvis, …”** phrase. Alice sends
+your message after a short pause, answers aloud, and listens for another question
+for 12 seconds after the entire reply finishes. After that, use the wake phrase
+again. Change the phrase, pause length, and follow-up window in **Voice Studio**.
+The microphone starts off every time you open Alice.
+
+Hands-free uses local WebRTC speech detection and CPU Whisper, including for wake
+detection; it needs the local Whisper/OpenVoice installation. Idle speech is
+processed on the Alice host to detect the selected phrase and then discarded.
+Only a wake request or an active follow-up becomes a chat message, sent to your
+selected provider. It does not use browser speech recognition. Audio stays
+transient and only one hands-free window can listen at a time.
+
+Speak to interrupt Alice's audio. With **Agent mode off**, this also stops the
+current chat response and sends your next question once cancellation finishes.
+With **Agent mode on**, workspace tasks continue and your follow-up appears for
+review. Typed drafts are preserved; **Add to draft** lets you combine a captured
+message with your existing text. Tool approval still requires an on-screen click.
+After a tool approval or transcript review, say the wake phrase again to resume.
+Say **“Stop listening”** or click **Hands-free on** to release the microphone.
+
+Keep Alice visible while listening; hiding the page, navigating away, losing the
+microphone, or disconnecting stops capture and requires an explicit restart.
+Each message is limited to 15 seconds. Headphones help avoid false interruptions
+from speaker echo. This is a browser conversation mode, not an always-on system
+tray wake service. Local model latency and microphone quality affect responsiveness.
+Voice performance can be tuned in `.env`: `ALICE_WHISPER_BEAM_SIZE=1` is the
+fast local default; values up to 5 trade CPU time for recognition accuracy.
+`ALICE_WHISPER_MODEL=tiny` is the fastest option; `base` is the balanced default,
+while `small` and `medium` improve accuracy at the cost of CPU time and memory.
+`ALICE_VOICE_IDLE_SECONDS` controls how long the isolated voice worker stays
+resident after its last request. Set it to `0` to keep loaded voice models
+available until Alice exits, avoiding cold-start delays during frequent use.
+The hands-free transport fallback is 700 ms of silence. Voice Studio's Natural
+setting remains 850 ms, and saved pause preferences take precedence.
+Completed turns report capture duration (including the end pause) and recognition
+duration. Live previews start after approximately 1.2 seconds of captured audio.
+Alice re-decodes overlapping snapshots of the current turn, with at least 1.2
+seconds between completed preview work and the next snapshot. Slow CPUs may
+update less often. Only one preview runs at a time; final decoding waits for it
+and rechecks the complete recording. The 15-second capture limit still applies.
+Idle speech previews are hidden unless they contain the selected wake prefix.
+Preview text is provisional and can change; it never activates tools, submits
+chat, or grants approval. Agent-mode voice requests require transcript review
+before submission, followed by the existing separate approval for file writes
+and process execution. Model answer generation still starts after final text.
+
+### Loading and runtime performance
+
+Chat startup loads saved state before hardware and runtime checks complete.
+Runtime probes run concurrently, and GPU telemetry runs outside the API event
+loop. The state/status endpoints share an in-flight probe and cache its result
+for five seconds. Provider discovery is limited to three seconds per provider.
+The lightweight state endpoint is `/api/state?include_runtimes=false`;
+the original state response remains available for existing clients.
+
+Opening chat no longer preloads speech weights. Starting voice or enabling spoken
+replies warms the worker on demand. Warm-up uses the worker's POST endpoint and
+allows time for cold model loading. On shutdown Alice stops the worker it launched.
+Other independently launched workers remain externally managed.
+
+### Dictation and browser wake controls
+
+In **Voice Studio**, select **Hey Alice** or **Hey Jarvis** and choose a voice
+profile. **Alice Briefing** uses the existing English voice with faster, confident
+delivery. Save your profile, return to chat, then press **Wake off** to enable
+your saved phrase. Listening starts off on every page load. Wake requests remain
+drafts unless you enable **Send browser wake requests automatically**; existing draft text
+is never included in an automatic submission.
+
+Say your wake phrase followed by one command, or use **Hold to talk**:
+
+- “Stop speaking”, “Cancel response”, or “Stop listening”.
+- “Open models”, “Open voice settings”, “Open settings”, or “Open workspace”.
+- “System status”, “Open command center”, or “New conversation”.
+- “Mute voice”, “Unmute voice”, or “Clear dictation”.
+
+Commands match complete utterances; ordinary dictated sentences remain messages.
+Voice never approves workspace changes or processes. Wake listening uses the
+browser's speech-recognition service and may require internet access. Hold to
+talk prefers local Whisper when installed, including browsers without native
+speech recognition. Wake listening pauses while Alice plays audio; use the
+microphone button, **Stop speaking**, or local interruption detection to interrupt.
+
+Stability improvements reject overlapping runs in one conversation, limit active
+runs and in-memory replay history, clean up cancelled approvals, and resume SSE
+streams without replaying already-received tokens. If older events expire during
+a disconnect, the UI reloads the saved conversation when the run finishes. These
+checks complement the existing workspace and approval boundaries.
+The voice worker loads speech-generation models only when needed. CPU dictation
+has its own request lock, and active voice requests prevent idle shutdown.
+
+After updating source, restart Alice and refresh the browser. Existing packaged
+EXEs must be rebuilt to include the updated source and web assets. Regression
+checks: `.venv\Scripts\python.exe -m pytest -q`,
+`.venv\Scripts\python.exe -m ruff check src tests`, and
+`node --test tests/*.test.cjs`.
+
 Alice now includes an initial **Cluster** page for pairing LAN inference workers.
 Run models on another trusted PC while keeping conversations and tools on your
 controller. See [the cluster setup guide](docs/cluster.md) for HTTPS pairing,
@@ -64,21 +212,22 @@ skill has a name, a short description, detailed workflow instructions, and an
 optional read-only lock. They are saved in `<ALICE_HOME>/skills.json`; API keys,
 models, and workspace permissions are not stored in a skill.
 
-Alice is currently a text and workspace agent; dictation only fills the message
-box. It does not yet provide a general desktop-control layer, wake-word service,
-  image input, RAG index, or MCP client. For command isolation it provides an
-  optional Docker container runner; host processes remain an explicit, approved
-  fallback.
+Alice is a text and workspace agent with browser voice controls. It does not
+provide a general desktop-control layer, an always-on OS wake-word service,
+image input, RAG index, or MCP client. For command isolation it provides an
+optional Docker container runner; host processes remain an explicit, approved
+fallback.
 
 ## Requirements
 
-- Python 3.11 or newer.
-- LocalAI installed natively in WSL, or Docker Desktop with the LocalAI image
-  for the managed LocalAI provider.
-- Ollama for the fallback local provider, model pulls, and GGUF import.
 - A modern browser.
-- Internet access during setup unless the Python dependencies are already in a
-  local package cache.
+- Internet access for the first full setup. On Windows, setup installs Python,
+  Python 3.10, Git, FFmpeg, OpenVoice, and the OpenVoice checkpoints
+  when they are missing. It uses Windows App Installer (`winget`) for machine
+  prerequisites.
+
+The bundled llama.cpp runtime is available immediately after setup. No language
+model is downloaded automatically because model size and licensing choices vary.
 
 The audited Windows machine has Python 3.13, Ollama, an RTX 3050 with 8 GiB of
 VRAM, 16 GiB of system RAM, and a Ryzen 5 5500. A 3B-8B model in a Q4
@@ -95,10 +244,17 @@ Open PowerShell in `I:\Alice-os`:
 .\scripts\start.cmd
 ```
 
-Setup creates `.venv`, installs Alice and its test dependencies in editable
-mode, and checks whether Ollama is available. It deliberately does not download
-a model. The start script opens `http://127.0.0.1:7788` and stores Alice data in
-`I:\Alice-os\.alice-data` unless `ALICE_HOME` is set.
+Or, for a click-to-run terminal installer, double-click `install.cmd` in the
+Alice folder. It opens Command Prompt, installs requirements, prompts for the
+administrator username and password on first setup, and keeps the result visible.
+
+Setup is a complete Windows installer: it creates `.venv`, installs Alice and
+its test dependencies, downloads the correct Windows llama.cpp backend, and
+provisions the separate OpenVoice/MeloTTS runtime and
+voice checkpoints. It may download several gigabytes and take several minutes.
+It deliberately does not download a language model. The start script opens
+`http://127.0.0.1:7788` and stores Alice data in `I:\Alice-os\.alice-data`
+unless `ALICE_HOME` is set.
 
 Useful launch variants:
 
@@ -110,11 +266,10 @@ Useful launch variants:
 The launcher starts Alice's native model manager and does not start LocalAI as
 a separate service. The manager uses the LocalAI gallery format, downloads
 models into `<ALICE_HOME>\models\localai`, verifies checksums, writes compatible
-model definitions, and tracks progress inside Alice. It also starts Ollama when it is
-installed but its local service is not responding, and starts the bundled
+model definitions, and tracks progress inside Alice. It starts the bundled
 llama.cpp provider on `127.0.0.1:8081` when its server binary and an Alice-managed
 GGUF are present. It selects the newest model in `<ALICE_HOME>\models\localai`.
-Use `-NoOllama` or `-NoLlama` to skip a runtime.
+Use `-NoLlama` to skip the managed runtime.
 
 LocalAI is not required for Alice model management. The legacy LocalAI runtime
 can still be started explicitly with `-UseLocalAI` for compatibility, but normal
@@ -154,11 +309,29 @@ Alice. If `.local` is not resolved by your network, use your router's local DNS
 with a suitable custom `-Hostname`; the certificate will be generated for that name.
 See [HTTPS LAN setup](docs/https-lan.md) for client trust and network requirements.
 
-To install runtime dependencies without pytest:
+For a lightweight/offline-oriented setup that installs only Alice's Python
+environment, without llama.cpp or OpenVoice:
 
 ```powershell
-.\scripts\setup.cmd -WithoutDev
+.\scripts\setup.cmd -Minimal
 ```
+
+`-WithoutDev` can be combined with either setup mode to omit test tooling.
+The full installer also accepts `-SkipLlama` or `-SkipOpenVoice` when one
+runtime must be managed separately.
+
+## Signing release EXEs
+
+Before distributing an EXE, sign both release files with an Authenticode
+certificate. Build the EXEs, then use a PFX certificate:
+
+```powershell
+.\scripts\sign-exes.ps1 -CertificatePath C:\secure\AliceOS.pfx -CertificatePassword "..." -TimestampUrl "https://your-timestamp-server"
+```
+
+Alternatively, use `-CertificateThumbprint` when the certificate is already
+installed in the Windows certificate store. The script signs and verifies both
+`AliceOS-Installer.exe` and `AliceOS.exe`.
 
 If you prefer to invoke PowerShell directly, use
 `powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1`.
@@ -176,26 +349,28 @@ Arguments after `start.sh` go to Alice's CLI:
 bash scripts/start.sh --port 7799 --no-browser
 ```
 
-## Ollama first run
+## Optional legacy Ollama support
 
-Alice does not ship a model. First verify that Ollama is installed:
+Alice no longer installs or starts Ollama. The managed local path is llama.cpp
+with a GGUF selected in **Models**. If you already use Ollama and want to keep
+an existing external provider profile, verify it separately:
 
 ```powershell
 ollama --version
 ```
 
-The Alice launcher starts `ollama serve` automatically when needed. On Linux
-or macOS, this requires `curl` to be installed for the readiness check. You can
-also start the service manually when your installation has not configured one:
+Alice leaves externally managed Ollama services alone. If you keep that optional
+provider, start the service yourself:
 
 ```bash
 ollama serve
 ```
 
-In Voice settings, enable **Listen for “Hey Alice”** for hands-free dictation.
-The browser must support Web Speech Recognition and may require one microphone
-permission gesture before the wake listener can remain active. After hearing
-“Hey Alice,” Alice captures the next request and submits it automatically.
+In Voice Studio, choose **Hey Alice** or **Hey Jarvis** for hands-free dictation.
+Enable listening in the studio or with the **Wake off** button in chat. The
+browser must support Web Speech Recognition and requires microphone permission.
+After hearing the selected phrase, Alice captures the request as a draft;
+automatic submission is an explicit Voice Studio preference.
 
 In another terminal, download a tool-capable instruct or coding model from the
 Ollama registry and verify it appears:
@@ -266,9 +441,10 @@ local speech and can later be extended with a reference recording for voice
 cloning. The source checkout, environment, and downloaded checkpoints are
 intentionally excluded from this repository.
 
-OpenVoice's dependency pins require **Python 3.10**; Alice's own Python 3.13
-environment must not be reused. Install a current 64-bit Python 3.10 release,
-then run:
+OpenVoice's dependency pins require **Python 3.10**; Alice keeps it separate
+from its own Python environment. The normal full setup installs it, along with
+Git, FFmpeg, the OpenVoice source, and checkpoints. To install or repair only
+the speech backend, run:
 
 ```powershell
 .\scripts\setup-openvoice.cmd
@@ -276,9 +452,8 @@ then run:
 
 The installer creates `tools/OpenVoice/.venv`, installs OpenVoice and MeloTTS,
 downloads the official `myshell-ai/OpenVoiceV2` checkpoints from Hugging Face,
-and verifies the runtime. It may download several gigabytes of packages and
-models. After it completes, restart Alice and enable **Speak replies** in the
-message box. Alice streams each reply through its authenticated local player;
+and verifies the runtime. After it completes, restart Alice and enable **Speak
+replies** in the message box. Alice streams each reply through its authenticated local player;
 the OpenVoice scratch WAV is deleted as soon as it has been read, and the
 playback clip exists only in memory for 15 minutes.
 
@@ -521,9 +696,9 @@ For a quick syntax check of the Python package:
 Run `ollama list`. If it is empty, pull or import a model, then use the refresh
 button. A model is never downloaded at setup time.
 
-### Ollama is installed but offline
+### Optional Ollama provider is offline
 
-The Alice launcher starts `ollama serve` automatically when needed. Confirm:
+If you still use the optional Ollama provider, confirm its service is available:
 
 ```powershell
 ollama list
@@ -624,10 +799,10 @@ install, stop Alice and its providers, copy the complete data folder externally,
 and set `ALICE_HOME` in `.env` to that absolute path. Keep the original until the
 copy is verified. This variable takes precedence over the installation pointer.
 
-Launchers set `OLLAMA_MODELS` to the data folder's `models/ollama` for processes
-they start. Already-running Ollama and external services require their own storage
-configuration. The optional legacy OpenVoice installer still stores checkpoints
-under `tools/OpenVoice`; this wizard does not relocate those files.
+Alice stores managed GGUF files below the selected data folder. Optional external
+Ollama services require their own storage configuration. The optional legacy
+OpenVoice installer still stores checkpoints under `tools/OpenVoice`; this wizard
+does not relocate those files.
 
 
 ### Loading downloaded models

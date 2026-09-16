@@ -8,10 +8,13 @@ import re
 import subprocess
 import tempfile
 import uuid
+from http.client import HTTPException
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from .paths import bundled, resource_root
 
 
 class VoiceError(RuntimeError):
@@ -43,6 +46,7 @@ class VoiceCancellation:
 
 
 REFERENCE_SUFFIXES = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+TRANSCRIPTION_SUFFIXES = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm", ".mp4"}
 WINDOWS_FEMALE_SPEAKER = "WINDOWS-ZIRA"
 OPENVOICE_FEMALE_SPEAKER = "OPENVOICE-FEMALE"
 OPENVOICE_WORKER_PORT = 7791
@@ -58,16 +62,22 @@ VOICE_STYLE_PRESETS: dict[str, dict[str, float]] = {
 }
 _openvoice_worker: asyncio.subprocess.Process | None = None
 _openvoice_request_lock: asyncio.Lock | None = None
+_openvoice_transcription_lock: asyncio.Lock | None = None
 _openvoice_start_lock: asyncio.Lock | None = None
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return resource_root()
 
 
 def _openvoice_root() -> Path:
     override = os.environ.get("OPENVOICE_HOME", "").strip()
-    return Path(override).expanduser().resolve() if override else _project_root() / "tools" / "OpenVoice"
+    if override:
+        return Path(override).expanduser().resolve()
+    if bundled():
+        from .config import default_data_dir
+        return default_data_dir() / "runtimes" / "OpenVoice"
+    return _project_root() / "tools" / "OpenVoice"
 
 
 def _openvoice_python(root: Path) -> Path:
@@ -99,11 +109,12 @@ def openvoice_status() -> dict[str, Any]:
 def voice_pipeline_status() -> dict[str, Any]:
     """Describe Alice's single-process voice path in LocalAI-compatible terms.
 
-    The browser owns transcription today because Web Speech is available without
-    downloading another model. VAD, the LLM stream, and local OpenVoice synthesis
-    are Alice-owned services and remain on the Alice host.
+    Whisper runs in Alice's isolated OpenVoice runtime when the installer has
+    downloaded its compact local model. Browser speech remains a graceful
+    fallback for existing installations until that one-time download completes.
     """
     runtime = openvoice_status()
+    transcription = transcription_status()
     return {
         "name": "Alice voice pipeline",
         "stages": [
@@ -118,11 +129,11 @@ def voice_pipeline_status() -> dict[str, Any]:
             {
                 "id": "transcription",
                 "name": "Speech transcription",
-                "engine": "Browser Web Speech API",
-                "transport": "Browser microphone",
-                "ready": "client",
+                "engine": f"faster-whisper ({whisper_model_name()}, INT8)",
+                "transport": "Alice local worker",
+                "ready": transcription["ready"],
                 "streaming": True,
-                "local": False,
+                "local": True,
             },
             {
                 "id": "llm",
@@ -148,9 +159,34 @@ def voice_pipeline_status() -> dict[str, Any]:
             "transcription": True,
             "clause_chunking": True,
         },
-        "transcription_note": (
-            "Dictation currently uses the browser speech recognizer. A local Whisper stage "
-            "can be enabled later when its model is installed."
+        "transcription_note": transcription["message"],
+    }
+
+
+def _whisper_model_root(root: Path) -> Path:
+    return root / "models" / "whisper"
+
+
+def whisper_model_name() -> str:
+    """Return a supported Whisper size from the environment."""
+    name = os.environ.get("ALICE_WHISPER_MODEL", "base").strip().casefold()
+    return name if name in {"tiny", "base", "small", "medium"} else "base"
+
+
+def transcription_status() -> dict[str, Any]:
+    root = _openvoice_root()
+    model_root = _whisper_model_root(root)
+    model_name = whisper_model_name()
+    model_ready = any(model_root.glob(f"models--Systran--faster-whisper-{model_name}/snapshots/*/model.bin"))
+    runtime_ready = openvoice_status()["ready"]
+    ready = bool(runtime_ready and model_ready)
+    return {
+        "ready": ready,
+        "model": model_name,
+        "local": True,
+        "message": (
+            "Local Whisper dictation is ready; microphone audio stays on this Alice host."
+            if ready else "Local Whisper model is not installed yet; browser dictation remains available."
         ),
     }
 
@@ -182,6 +218,14 @@ async def synthesize_openvoice(
     )
 
 
+async def voice_worker_status() -> dict[str, Any]:
+    """Read worker health without starting the worker or loading its models."""
+    try:
+        return await asyncio.to_thread(_worker_request, "/health", None, 1)
+    except VoiceError:
+        return {"ready": False, "message": "Voice worker is not running."}
+
+
 def resolve_voice_style(
     style: str, noise_scale: float | None, noise_scale_w: float | None, sdp_ratio: float | None
 ) -> dict[str, float]:
@@ -203,8 +247,88 @@ async def warm_openvoice() -> dict[str, Any]:
         return {**status, "warmed": False}
     root = Path(status["root"])
     await _ensure_openvoice_worker(root)
-    await asyncio.to_thread(_worker_request, "/warm")
+    await asyncio.to_thread(_worker_request, "/warm", {}, 300)
     return {**status, "warmed": True}
+
+
+async def transcribe_openvoice_audio(
+    *, filename: str, content: bytes,
+    on_partial: Callable[[dict[str, str]], Awaitable[None]] | None = None,
+) -> dict[str, str]:
+    """Transcribe a short browser recording using Alice's local Whisper worker."""
+    status = transcription_status()
+    if not status["ready"]:
+        raise VoiceError(str(status["message"]))
+    suffix = Path(filename).suffix.casefold()
+    if suffix not in TRANSCRIPTION_SUFFIXES:
+        raise VoiceError("Use a WAV, MP3, M4A, FLAC, OGG, WebM, or MP4 recording.")
+    if not content or len(content) > 25 * 1024 * 1024:
+        raise VoiceError("Dictation recordings must be between 1 byte and 25 MiB.")
+    with tempfile.NamedTemporaryFile(prefix="alice-dictation-", suffix=suffix, delete=False) as temporary:
+        input_path = Path(temporary.name)
+        temporary.write(content)
+    try:
+        root = _openvoice_root()
+        payload = {
+            "input": str(input_path),
+            "model_dir": str(_whisper_model_root(root)),
+            "model": whisper_model_name(),
+            "stream": True,
+        }
+        # Whisper runs on CPU and has its own worker lock, so listening need not
+        # wait for an in-flight TTS request to reach its next cancellation point.
+        async with _transcription_lock():
+            await _ensure_openvoice_worker(root)
+            loop = asyncio.get_running_loop()
+            events: asyncio.Queue[dict[str, Any] | BaseException | None] = asyncio.Queue()
+
+            def receive(event: dict[str, Any]) -> None:
+                loop.call_soon_threadsafe(events.put_nowait, event)
+
+            def stream_request() -> None:
+                try:
+                    if on_partial is None:
+                        receive({**_worker_request("/transcribe", {**payload, "stream": False}, 180), "final": True})
+                    else:
+                        _worker_stream_request("/transcribe", payload, receive, 180)
+                    loop.call_soon_threadsafe(events.put_nowait, None)
+                except BaseException as error:
+                    loop.call_soon_threadsafe(events.put_nowait, error)
+
+            request = asyncio.create_task(asyncio.to_thread(stream_request))
+            try:
+                result: dict[str, Any] = {}
+                while True:
+                    event = await events.get()
+                    if event is None:
+                        break
+                    if isinstance(event, BaseException):
+                        raise event
+                    if event.get("final"):
+                        result = event
+                    elif on_partial and str(event.get("text", "")).strip():
+                        await on_partial({"text": str(event["text"]), "language": str(event.get("language", ""))})
+                await asyncio.shield(request)
+            except BaseException:
+                # Cancelling to_thread does not stop the worker. Keep its input
+                # and transcription slot alive until it finishes, even if a
+                # disconnected client cancels this task more than once.
+                while not request.done():
+                    try:
+                        await asyncio.shield(request)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                if not request.cancelled():
+                    request.exception()
+                raise
+        text = str(result.get("text", "")).strip()
+        if not text:
+            raise VoiceError("Alice could not detect speech in that recording.")
+        return {"text": text, "language": str(result.get("language", ""))}
+    finally:
+        input_path.unlink(missing_ok=True)
 
 
 def list_voice_references(data_dir: Path) -> list[dict[str, str | int]]:
@@ -288,6 +412,37 @@ def _worker_request(path: str, payload: dict[str, Any] | None = None, timeout: f
         raise VoiceError("OpenVoice worker is not running.") from error
 
 
+def _worker_stream_request(
+    path: str, payload: dict[str, Any], on_event: Callable[[dict[str, Any]], None], timeout: float = 180
+) -> None:
+    data = json.dumps(payload).encode()
+    request = Request(
+        f"http://127.0.0.1:{OPENVOICE_WORKER_PORT}{path}", data=data,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        completed = False
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310 -- fixed loopback URL
+            while line := response.readline(65537):
+                if len(line) > 65536:
+                    raise VoiceError("Voice transcription event exceeded the size limit.")
+                if line.strip():
+                    event = json.loads(line.decode())
+                    if not isinstance(event, dict) or not isinstance(event.get("text"), str):
+                        raise VoiceError("Voice transcription returned an invalid event.")
+                    if completed:
+                        raise VoiceError("Voice transcription sent data after completion.")
+                    completed = event.get("final") is True
+                    on_event(event)
+        if not completed:
+            raise VoiceError("Voice transcription ended before its final result.")
+    except HTTPError as error:
+        detail = error.read().decode(errors="replace")
+        raise VoiceError(detail or "Voice transcription failed.") from error
+    except (OSError, TimeoutError, URLError, HTTPException, ValueError) as error:
+        raise VoiceError("OpenVoice worker is not running.") from error
+
+
 async def _ensure_openvoice_worker(root: Path) -> None:
     global _openvoice_start_lock
     if _openvoice_start_lock is None:
@@ -312,6 +467,15 @@ async def _stop_voice_process(process: asyncio.subprocess.Process) -> None:
     await process.wait()
 
 
+async def shutdown_openvoice() -> None:
+    """Stop only the isolated worker launched by this Alice process."""
+    global _openvoice_worker
+    worker = _openvoice_worker
+    if worker is not None:
+        await _stop_voice_process(worker)
+        _openvoice_worker = None
+
+
 async def _start_openvoice_worker(root: Path) -> None:
     global _openvoice_worker
     try:
@@ -324,6 +488,7 @@ async def _start_openvoice_worker(root: Path) -> None:
         flags = 0x08000000 if os.name == "nt" else 0
         _openvoice_worker = await asyncio.create_subprocess_exec(
             str(_openvoice_python(root)), str(worker), "--openvoice-root", str(root), "--port", str(OPENVOICE_WORKER_PORT),
+            "--idle-seconds", str(_voice_idle_seconds()),
             creationflags=flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     deadline = asyncio.get_running_loop().time() + 300
@@ -346,6 +511,21 @@ def _openvoice_lock() -> asyncio.Lock:
     if _openvoice_request_lock is None:
         _openvoice_request_lock = asyncio.Lock()
     return _openvoice_request_lock
+
+
+def _voice_idle_seconds() -> int:
+    """Return the worker keep-alive window, with a safe five-minute default."""
+    try:
+        return max(0, min(int(os.environ.get("ALICE_VOICE_IDLE_SECONDS", "300")), 86400))
+    except ValueError:
+        return 300
+
+
+def _transcription_lock() -> asyncio.Lock:
+    global _openvoice_transcription_lock
+    if _openvoice_transcription_lock is None:
+        _openvoice_transcription_lock = asyncio.Lock()
+    return _openvoice_transcription_lock
 
 
 async def _synthesize_openvoice(

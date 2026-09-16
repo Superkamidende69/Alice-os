@@ -1,14 +1,58 @@
 [CmdletBinding()]
 param(
-    [string]$Python = ""
+    [string]$Python = "",
+
+    [string]$OpenVoiceRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$openVoiceRoot = Join-Path $projectRoot "tools\OpenVoice"
+$openVoiceRoot = if ($OpenVoiceRoot) { [IO.Path]::GetFullPath($OpenVoiceRoot) } else { Join-Path $projectRoot "tools\OpenVoice" }
 $openVoicePython = Join-Path $openVoiceRoot ".venv\Scripts\python.exe"
+
+function Update-ProcessPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = @($machinePath, $userPath, $env:Path | Where-Object { $_ }) -join ";"
+}
+
+function Install-WingetPackage {
+    param([string]$Id, [string]$Name)
+    $winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw "$Name is required, but Windows App Installer (winget) is unavailable. Install App Installer and rerun setup."
+    }
+    Write-Host "Installing $Name..."
+    & $winget.Source install --id $Id --exact --source winget --scope user --disable-interactivity `
+        --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) { throw "Could not install $Name (exit code $LASTEXITCODE)." }
+    Update-ProcessPath
+}
+
+function Find-Python310 {
+    if ($Python -and (Test-Path -LiteralPath $Python -PathType Leaf)) { return $Python }
+    $launcher = Get-Command "py.exe" -ErrorAction SilentlyContinue
+    if ($launcher) {
+        $candidate = & $launcher.Source -3.10 -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $candidate) { return $candidate.Trim() }
+    }
+    foreach ($candidate in @(
+        (Join-Path $env:LocalAppData "Programs\Python\Python310\python.exe"),
+        "C:\Program Files\Python310\python.exe"
+    )) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    Install-WingetPackage -Id "Python.Python.3.10" -Name "Python 3.10 for OpenVoice"
+    foreach ($candidate in @(
+        (Join-Path $env:LocalAppData "Programs\Python\Python310\python.exe"),
+        "C:\Program Files\Python310\python.exe"
+    )) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    throw "Python 3.10 was installed but could not be found. Open a new PowerShell window and rerun setup."
+}
 
 function Invoke-OpenVoiceCommand {
     param(
@@ -21,16 +65,18 @@ function Invoke-OpenVoiceCommand {
     }
 }
 
-if (-not (Test-Path -LiteralPath $openVoiceRoot -PathType Container)) {
-    git clone --depth 1 https://github.com/myshell-ai/OpenVoice.git $openVoiceRoot
-}
+$Python = Find-Python310
 
-if (-not $Python) {
-    $candidate = & py -3.10 -c "import sys; print(sys.executable)" 2>$null
-    if ($LASTEXITCODE -eq 0) { $Python = $candidate.Trim() }
+$git = Get-Command "git.exe" -ErrorAction SilentlyContinue
+if (-not $git) {
+    Install-WingetPackage -Id "Git.Git" -Name "Git for OpenVoice and MeloTTS"
+    $git = Get-Command "git.exe" -ErrorAction SilentlyContinue
 }
-if (-not $Python -or -not (Test-Path -LiteralPath $Python -PathType Leaf)) {
-    throw "OpenVoice needs Python 3.10. Install a current Python 3.10 release, then rerun this script or pass -Python C:\Path\python.exe. Alice itself stays on its own Python version."
+if (-not $git) { throw "Git was installed but could not be found. Open a new PowerShell window and rerun setup." }
+
+if (-not (Test-Path -LiteralPath $openVoiceRoot -PathType Container)) {
+    & $git.Source clone --depth 1 https://github.com/myshell-ai/OpenVoice.git $openVoiceRoot
+    if ($LASTEXITCODE -ne 0) { throw "Downloading the OpenVoice source failed (exit code $LASTEXITCODE)." }
 }
 
 & $Python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 10) else 1)"
@@ -66,10 +112,15 @@ if ($LASTEXITCODE -ne 0) { throw "Removing the incompatible full UniDic package 
 $nltkData = Join-Path $openVoiceRoot ".venv\nltk_data"
 New-Item -ItemType Directory -Force -Path $nltkData | Out-Null
 Invoke-OpenVoiceCommand "Downloading MeloTTS English language data" { & $openVoicePython -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', download_dir=r'$nltkData', quiet=True)" }
-if (-not (Get-Command "ffmpeg" -ErrorAction SilentlyContinue)) {
-    Write-Warning "FFmpeg is not on PATH. Install it (for example: winget install --id Gyan.FFmpeg.Essentials --exact --scope user) before using MP3/M4A voice references."
+if (-not (Get-Command "ffmpeg.exe" -ErrorAction SilentlyContinue)) {
+    Install-WingetPackage -Id "Gyan.FFmpeg.Essentials" -Name "FFmpeg for voice references"
+    if (-not (Get-Command "ffmpeg.exe" -ErrorAction SilentlyContinue)) {
+        Write-Warning "FFmpeg was installed but is not available in this terminal yet. MP3/M4A voice references may need a new terminal."
+    }
 }
 Invoke-OpenVoiceCommand "Downloading OpenVoice V2 checkpoints" { & $openVoicePython -c "from huggingface_hub import snapshot_download; snapshot_download('myshell-ai/OpenVoiceV2', local_dir=r'$openVoiceRoot\checkpoints_v2')" }
+New-Item -ItemType Directory -Force -Path (Join-Path $openVoiceRoot "models\whisper") | Out-Null
+Invoke-OpenVoiceCommand "Downloading the local Whisper dictation model" { & $openVoicePython -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8', download_root=r'$openVoiceRoot\models\whisper'); print('Whisper base model: OK')" }
 Invoke-OpenVoiceCommand "Checking speech and voice-cloning imports" { & $openVoicePython -c "from openvoice.api import ToneColorConverter; from openvoice import se_extractor; from melo.api import TTS; print('OpenVoice runtime: OK')" }
 
 Write-Host "OpenVoice is ready. Restart Alice, then turn on Speak replies in the message box."

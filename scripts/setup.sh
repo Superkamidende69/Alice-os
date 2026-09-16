@@ -48,11 +48,5 @@ printf 'Installing Alice OS in editable mode...\n'
 
 "$VENV_PYTHON" -m alice_os --setup
 
-if command -v ollama >/dev/null 2>&1; then
-  printf 'Ollama executable: %s\n' "$(command -v ollama)"
-else
-  printf '%s\n' 'Warning: Ollama was not found. Local model pull/GGUF import needs Ollama.' >&2
-fi
-
 printf '\nSetup complete. Start Alice with:\n  bash scripts/start.sh\n\n'
-printf '%s\n' 'No model is downloaded automatically. See README.md for Ollama first-run steps.'
+printf '%s\n' 'No model is downloaded automatically. Use Alice Models to download a GGUF for llama.cpp.'

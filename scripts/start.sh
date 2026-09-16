@@ -43,21 +43,17 @@ fi
 "$VENV_PYTHON" -m alice_os --setup
 ALICE_HOME="$("$VENV_PYTHON" -c 'from alice_os.config import default_data_dir; print(default_data_dir())')"
 export ALICE_HOME
-export OLLAMA_MODELS="${ALICE_HOME}/models/ollama"
-
-OLLAMA_DISABLED=0
 LOCALAI_DISABLED=0
 LOCALAI_ENABLED=0
 LLAMA_DISABLED=0
 NETWORK_ENABLED=0
 ALICE_ARGS=()
 for arg in "$@"; do
-  [[ "$arg" == "--no-ollama" ]] && OLLAMA_DISABLED=1
   [[ "$arg" == "--no-localai" ]] && LOCALAI_DISABLED=1
   [[ "$arg" == "--use-localai" ]] && LOCALAI_ENABLED=1
   [[ "$arg" == "--no-llama" ]] && LLAMA_DISABLED=1
   [[ "$arg" == "--network" || "$arg" == "--lan" ]] && NETWORK_ENABLED=1
-  [[ "$arg" != "--no-ollama" && "$arg" != "--no-localai" && "$arg" != "--use-localai" && "$arg" != "--no-llama" && "$arg" != "--network" ]] && ALICE_ARGS+=("$arg")
+  [[ "$arg" != "--no-localai" && "$arg" != "--use-localai" && "$arg" != "--no-llama" && "$arg" != "--network" ]] && ALICE_ARGS+=("$arg")
 done
 
 if [[ "$NETWORK_ENABLED" -eq 1 ]]; then
@@ -68,25 +64,6 @@ fi
 
 LOG_DIR="${ALICE_HOME}/logs"
 mkdir -p "$LOG_DIR"
-
-if [[ "$OLLAMA_DISABLED" -eq 0 ]]; then
-  if curl --silent --fail --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
-    printf 'Ollama service is already running at http://127.0.0.1:11434\n'
-  elif command -v ollama >/dev/null 2>&1; then
-    nohup ollama serve >"${LOG_DIR}/ollama.log" 2>"${LOG_DIR}/ollama.err.log" &
-    for _ in {1..20}; do
-      sleep 0.5
-      curl --silent --fail --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1 && break
-    done
-    if curl --silent --fail --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
-      printf 'Started Ollama service at http://127.0.0.1:11434\n'
-    else
-      printf 'Warning: Ollama did not become ready; Alice will still start.\n' >&2
-    fi
-  else
-    printf 'Warning: Ollama was not found; Alice will start without its built-in Ollama provider.\n' >&2
-  fi
-fi
 
 if [[ "$LOCALAI_ENABLED" -eq 1 && "$LOCALAI_DISABLED" -eq 0 ]]; then
   if curl --silent --fail --max-time 2 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then

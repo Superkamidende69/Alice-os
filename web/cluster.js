@@ -46,6 +46,10 @@
       $("parallel").value = state.worker.max_parallel;
     }
     $("certificate").value = state.ca_pem;
+    if (initialize) {
+      $("network-worker-url").value = location.origin;
+      $("network-worker-name").value = location.hostname || "Alice worker";
+    }
     $("controllers").replaceChildren();
     if (!state.controllers.length) $("controllers").textContent = "No controllers are authorized.";
     for (const controller of state.controllers) {
@@ -86,6 +90,22 @@
     const result = await api("/api/cluster/pairing", "POST");
     $("code").textContent = result.code; notice("Pairing code ready. Use it on your controller within five minutes.");
   });
+  $("network-join-form").onsubmit = event => {
+    event.preventDefault(); action(event.submitter, async () => {
+      const result = await api("/api/cluster/join-network", "POST", {
+        controller_url: $("controller-url").value.trim(),
+        controller_ca_pem: $("controller-ca").value.trim(),
+        username: $("controller-username").value.trim(),
+        password: $("controller-password").value,
+        name: $("network-worker-name").value.trim(),
+        url: $("network-worker-url").value.trim(),
+        ca_pem: $("certificate").value.trim(),
+      });
+      $("controller-password").value = "";
+      await refresh();
+      notice(`Connected to ${result.controller}. This worker is ready on your Alice network.`);
+    });
+  };
   $("join-form").onsubmit = event => {
     event.preventDefault(); action(event.submitter, async () => {
       await api("/api/cluster/nodes", "POST", { name: $("name").value.trim(), url: $("url").value.trim(), code: $("join-code").value.trim(), ca_pem: $("ca").value.trim() });

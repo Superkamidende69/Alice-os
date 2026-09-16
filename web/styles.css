@@ -585,6 +585,8 @@ kbd {
   padding: 0 34px 0 11px;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
+  appearance: none;
+  -webkit-appearance: none;
   outline: 0;
   color: var(--text-soft);
   background: rgba(255, 255, 255, 0.035);
@@ -3892,6 +3894,69 @@ body {
   display: grid;
   gap: 6px;
 }
+
+.voice-preset-section {
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid rgba(126, 231, 215, 0.14);
+  border-radius: 10px;
+  background: rgba(126, 231, 215, 0.035);
+}
+
+.voice-preset-section > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+}
+
+.voice-preset-section small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.voice-preset-library {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.voice-preset-button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-soft);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+
+.voice-preset-button:hover,
+.voice-preset-button:focus-visible {
+  border-color: rgba(126, 231, 215, 0.52);
+  outline: none;
+}
+
+.voice-preset-button[data-selected="true"] {
+  border-color: rgba(126, 231, 215, 0.65);
+  color: #d7fffa;
+  background: rgba(126, 231, 215, 0.12);
+}
+
+.voice-preset-button strong,
+.voice-preset-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-preset-button strong { font-size: 0.72rem; }
 
 .voice-interruption-card {
   grid-column: 1 / -1;

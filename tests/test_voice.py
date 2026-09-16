@@ -114,10 +114,18 @@ def test_cancel_before_synthesis_is_authenticated_and_remembered(tmp_path):
 def test_speech_cleanup_keeps_words_and_link_labels():
     assert speech.text_for_speech("Hello\nworld — [read this](https://example.com).") == "Hello world , read this."
     assert "secret_code" not in speech.text_for_speech("Here:\n```python\nsecret_code()\n```")
+    assert speech.text_for_speech("Dr. Ada & Bob, e.g. the team") == "Doctor Ada and Bob, for example the team"
     text = "This is a complete thought. " * 30
     chunks = speech.speech_chunks(text)
     assert all(len(chunk) <= 240 for chunk in chunks)
     assert " ".join(chunks) == text.strip()
+
+
+def test_speech_chunks_do_not_split_after_titles_or_initials():
+    chunks = speech.speech_chunks("Dr. Ada works. B. Smith agrees.", limit=10)
+    assert chunks[0] == "Dr. Ada"
+    assert "B." not in chunks
+    assert speech.pause_after("Question?") > speech.pause_after("Clause,")
 
 
 def test_synthesis_checks_cancellation_between_segments_and_cleans_parts(tmp_path):
@@ -163,7 +171,38 @@ def test_audio_segments_have_consistent_format_and_brief_pauses(tmp_path):
     count = len(speech.speech_chunks(text))
     with wave.open(str(output)) as clip:
         assert clip.getframerate() == 16000
-        assert clip.getnframes() == count * 1600 + (count - 1) * 1600
+    assert clip.getnframes() == count * (1600 + int(16000 * 0.32))
+    assert list(tmp_path.iterdir()) == [output]
+
+
+def test_short_speech_splits_commas_sentences_and_quotes_without_splitting_numbers():
+    assert speech.speech_chunks('First, take a breath. Then say "hello." Next!') == [
+        "First,", "take a breath.", 'Then say "hello."', "Next!",
+    ]
+    assert speech.speech_chunks("It costs 1,000.50 dollars,not 3.14. Dr. Ada agrees.") == [
+        "It costs 1,000.50 dollars,", "not 3.14.", "Dr. Ada agrees.",
+    ]
+    assert speech.pause_after('Done."') == speech.pause_after("Done.") == .32
+    assert speech.pause_after("Dr.") < speech.pause_after("Done.")
+
+
+def test_punctuation_pauses_are_written_to_short_streamed_wav(tmp_path):
+    calls = []
+
+    class Model:
+        def tts_to_file(self, text, speaker, output, **kwargs):
+            calls.append(text)
+            with wave.open(output, "wb") as clip:
+                clip.setparams((1, 2, 1000, 0, "NONE", "not compressed"))
+                clip.writeframes(b"\x01\x01" * 100)
+
+    output = tmp_path / "punctuation.wav"
+    speech.tts_to_wav(Model(), "Hello, world. Next sentence.", 0, output, 1.15, .6, .8, .2)
+    assert calls == ["Hello,", "world.", "Next sentence."]
+    with wave.open(str(output), "rb") as clip:
+        actual = clip.readframes(clip.getnframes())
+    tone = b"\x01\x01" * 100
+    assert actual == tone + bytes(320) + tone + bytes(640) + tone + bytes(640)
     assert list(tmp_path.iterdir()) == [output]
 
 

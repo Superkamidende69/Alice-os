@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
 import ipaddress
 import json
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+import httpx
+import psutil
 from fastapi import (
     Depends,
     FastAPI,
@@ -31,13 +34,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .agent import RunManager
+from .agent import RunCapacityError, RunConflictError, RunManager
 from .auth import create_auth_file, load_or_create_session_token, verify_auth_file
 from .cluster import Cluster, mount_cluster
 from .config import ConfigStore
+from .diagnostics import SystemDiagnostics
 from .distributed import DistributedSettings, probe_devices
+from .handsfree import ConversationLease, HandsFreeConversation
 from .model_manager import ModelManager
 from .models import ProviderProfile
+from .paths import resource_root
 from .providers import ProviderError, list_models
 from .runtimes import (
     RuntimeOperationError,
@@ -73,8 +79,12 @@ from .voice import (
     openvoice_status,
     remove_voice_reference,
     save_voice_reference,
+    shutdown_openvoice,
     synthesize_openvoice,
+    transcribe_openvoice_audio,
+    transcription_status,
     voice_pipeline_status,
+    voice_worker_status,
     warm_openvoice,
 )
 
@@ -121,6 +131,11 @@ class RunCreate(BaseModel):
     model: str
     agent_mode: bool = True
     skill_id: str = Field(default="general", max_length=40)
+    response_depth: str = Field(default="balanced", pattern="^(quick|balanced|thorough)$")
+
+
+class ImageCreate(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
 
 
 class SkillUpsert(BaseModel):
@@ -314,6 +329,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     storage = Storage(config.data_dir / "alice.db")
     skills = SkillStore(config.data_dir)
     runs = RunManager(storage, config, skills=skills)
+    diagnostics = SystemDiagnostics()
     cluster = Cluster(config)
     model_manager.bridges = cluster.bridges
     runs.cluster = cluster
@@ -330,20 +346,50 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     network_auth_file = config.data_dir / "network-auth.json"
     network_access_token = load_or_create_session_token(config.data_dir / "network-session-token")
     huggingface_token_store = SecretStore(config.data_dir / "secrets" / "huggingface-token")
-    web_dir = Path(__file__).resolve().parents[2] / "web"
+    web_dir = resource_root() / "web"
+    runtime_snapshot: tuple[float, dict[str, Any]] | None = None
+    runtime_refresh: asyncio.Task[dict[str, Any]] | None = None
+
+    async def cached_runtime_status() -> dict[str, Any]:
+        nonlocal runtime_snapshot, runtime_refresh
+        if runtime_snapshot is not None and time.monotonic() - runtime_snapshot[0] < 5:
+            return runtime_snapshot[1]
+
+        async def refresh() -> dict[str, Any]:
+            nonlocal runtime_snapshot
+            result = await runtime_status()
+            runtime_snapshot = (time.monotonic(), result)
+            return result
+
+        if runtime_refresh is None or runtime_refresh.done():
+            runtime_refresh = asyncio.create_task(refresh())
+            runtime_refresh.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+        return await asyncio.shield(runtime_refresh)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        yield
-        for task in download_tasks:
-            task.cancel()
-        if download_tasks:
-            await asyncio.gather(*download_tasks, return_exceptions=True)
-        await runs.shutdown()
-        await cluster.shutdown()
-        await cluster.bridges.close()
-        await cluster.gpu.stop()
-        storage.close()
+        try:
+            yield
+        finally:
+            if runtime_refresh is not None and not runtime_refresh.done():
+                runtime_refresh.cancel()
+                await asyncio.gather(runtime_refresh, return_exceptions=True)
+            pending_downloads = tuple(download_tasks)
+            for task in pending_downloads:
+                task.cancel()
+            for cancellation in tuple(voice_jobs.values()):
+                cancellation.cancel()
+            try:
+                if pending_downloads:
+                    await asyncio.gather(*pending_downloads, return_exceptions=True)
+                await runs.shutdown()
+                await cluster.shutdown()
+                await cluster.bridges.close()
+                await cluster.gpu.stop()
+                await shutdown_openvoice()
+            finally:
+                audio_cache.clear()
+                storage.close()
 
     app = FastAPI(
         title="Alice OS",
@@ -439,7 +485,16 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             if parsed.hostname not in allowed_origin:
                 raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin is not allowed")
 
-    mount_cluster(app, cluster, require_session)
+    # Network enrolment is authenticated with this host's existing account.
+    # The password is verified only for the one HTTPS request and is never kept
+    # in cluster state or the worker's secret store.
+    mount_cluster(
+        app,
+        cluster,
+        require_session,
+        lambda username, password: network_auth_file.is_file()
+        and verify_auth_file(network_auth_file, username, password),
+    )
 
     async def available_models(profile: ProviderProfile) -> list[str]:
         if profile.kind == "cluster":
@@ -460,6 +515,12 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/api/system/status", dependencies=[Depends(require_session)])
+    async def system_status() -> dict[str, Any]:
+        return await diagnostics.snapshot(
+            config=config, runs=runs, list_models=available_models, version=__version__,
+        )
 
     @app.get("/api/auth/status")
     async def auth_status(request: Request) -> dict[str, bool]:
@@ -535,7 +596,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         return await index(request)
 
     @app.get("/api/state", dependencies=[Depends(require_session)])
-    async def state() -> dict[str, Any]:
+    async def state(include_runtimes: bool = True) -> dict[str, Any]:
         settings = config.get()
         return {
             "version": __version__,
@@ -543,7 +604,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             "selected_model": settings.active_model,
             "providers": [provider.model_dump() for provider in settings.providers],
             "sessions": storage.list_sessions(),
-            "runtimes": await runtime_status(),
+            "runtimes": await cached_runtime_status() if include_runtimes else None,
             "voice": {**openvoice_status(), "pipeline": voice_pipeline_status()},
             "privacy": {
                 "api_bind": "loopback",
@@ -632,11 +693,11 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
         async def provider_models_for_catalog(provider: ProviderProfile) -> tuple[ProviderProfile, list[str], str]:
             try:
-                models = await available_models(provider)
+                models = await asyncio.wait_for(available_models(provider), timeout=3)
                 error = ""
-            except ProviderError as exc:
+            except (ProviderError, TimeoutError) as exc:
                 models = []
-                error = str(exc)
+                error = str(exc) or "Model discovery timed out."
             if provider.default_model and provider.default_model not in models:
                 models = [provider.default_model, *models]
             return provider, models, error
@@ -681,6 +742,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.patch("/api/sessions/{session_id}", dependencies=[Depends(require_session)])
     async def update_session(session_id: str, body: SessionUpdate) -> dict[str, Any]:
         changes = body.model_dump(exclude_none=True)
+        if runs.active_for_session(session_id) and {"workspace", "provider_id", "model"} & changes.keys():
+            raise HTTPException(409, "Stop this conversation's running task before changing its workspace or model.")
         if "workspace" in changes:
             changes["workspace"] = _resolve_workspace(changes["workspace"])
         try:
@@ -695,6 +758,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     )
     async def delete_session(session_id: str) -> Response:
         try:
+            storage.get_session(session_id, include_messages=False)
+            active_run = runs.active_for_session(session_id)
+            if active_run:
+                await runs.cancel(active_run.id)
             storage.delete_session(session_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -702,6 +769,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.post("/api/runs", dependencies=[Depends(require_session)])
     async def create_run(body: RunCreate) -> dict[str, str]:
+        if not body.model.strip():
+            raise HTTPException(400, "Select a model before starting a task.")
         try:
             config.get_provider(body.provider_id)
             run = runs.start(
@@ -711,20 +780,30 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                 model=body.model,
                 agent_mode=body.agent_mode,
                 skill_id=body.skill_id,
+                response_depth=body.response_depth,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        except RunConflictError as error:
+            raise HTTPException(409, str(error)) from error
+        except RunCapacityError as error:
+            raise HTTPException(429, str(error)) from error
         return {"run_id": run.id}
 
     @app.get("/api/runs/{run_id}/events", dependencies=[Depends(require_session)])
-    async def run_events(run_id: str, after: int = 0) -> StreamingResponse:
+    async def run_events(run_id: str, request: Request, after: int = 0) -> StreamingResponse:
         try:
             run = runs.get(run_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        # EventSource supplies this cursor when automatically reconnecting.
+        try:
+            cursor = max(after, int(request.headers.get("last-event-id", "0")))
+        except ValueError as error:
+            raise HTTPException(400, "Last-Event-ID must be an integer event sequence.") from error
 
         async def event_stream() -> AsyncIterator[str]:
-            async for event in run.stream(after):
+            async for event in run.stream(cursor):
                 data = {"sequence": event.sequence, **event.data}
                 yield (
                     f"id: {event.sequence}\n"
@@ -759,7 +838,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/runtime/status", dependencies=[Depends(require_session)])
     async def get_runtime_status() -> dict[str, Any]:
-        return await runtime_status()
+        return await cached_runtime_status()
 
     @app.get("/api/memories", dependencies=[Depends(require_session)])
     async def list_memories() -> dict[str, Any]:
@@ -821,9 +900,58 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         except (RuntimeOperationError, OSError) as error:
             raise HTTPException(400, str(error)) from error
 
+    @app.post("/api/models/janus/stop", dependencies=[Depends(require_session)])
+    async def stop_janus_model() -> dict[str, Any]:
+        if any(run.task and not run.task.done() for run in runs.runs.values()):
+            raise HTTPException(409, "Wait for the active response to finish before stopping Janus")
+        try:
+            return await model_manager.stop_janus()
+        except (RuntimeOperationError, OSError, psutil.Error) as error:
+            raise HTTPException(400, str(error)) from error
+
     @app.get("/api/distributed", dependencies=[Depends(require_session)])
-    async def distributed_settings():
+    async def distributed_settings() -> dict[str, Any]:
         return model_manager.distributed.get().model_dump()
+
+    @app.post("/api/images/generate", dependencies=[Depends(require_session)])
+    async def generate_image(body: ImageCreate) -> dict[str, Any]:
+        if not body.prompt.strip():
+            raise HTTPException(422, "Enter an image description")
+        try:
+            async with httpx.AsyncClient(timeout=300, trust_env=False) as client:
+                response = await client.post("http://127.0.0.1:8082/v1/images/generations", json={"prompt": body.prompt})
+            if response.status_code == 429:
+                raise HTTPException(409, "Janus is busy. Wait for the current chat or image to finish.")
+            if response.status_code == 404:
+                raise HTTPException(409, "Restart the Janus runtime to enable image generation.")
+            response.raise_for_status()
+            encoded = response.json()["data"][0]["b64_json"]
+            if not isinstance(encoded, str) or len(encoded) > 8 * 1024 * 1024:
+                raise ValueError("Invalid image response size")
+            data = base64.b64decode(encoded, validate=True)
+            if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise ValueError("Invalid PNG response")
+        except HTTPException:
+            raise
+        except httpx.ConnectError as error:
+            raise HTTPException(409, "Start Janus from Models → Installed before generating an image.") from error
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as error:
+            raise HTTPException(502, "Janus could not generate an image. Check janus-server.log and retry.") from error
+        directory = config.data_dir / "generated-images"
+        directory.mkdir(exist_ok=True)
+        image_id = secrets.token_hex(16)
+        await asyncio.to_thread((directory / f"{image_id}.png").write_bytes, data)
+        return {"url": f"/api/images/{image_id}", "prompt": body.prompt}
+
+    @app.get("/api/images/{image_id}", dependencies=[Depends(require_session)])
+    async def generated_image(image_id: str) -> Response:
+        if len(image_id) != 32 or any(c not in "0123456789abcdef" for c in image_id):
+            raise HTTPException(404, "Image not found")
+        path = config.data_dir / "generated-images" / f"{image_id}.png"
+        if not path.is_file():
+            raise HTTPException(404, "Image not found")
+        return Response(await asyncio.to_thread(path.read_bytes), media_type="image/png",
+                        headers={"Cache-Control": "private, no-store"})
 
     @app.put("/api/distributed", dependencies=[Depends(require_session)])
     async def save_distributed_settings(body: DistributedSettings):
@@ -857,6 +985,12 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(502, str(error)) from error
 
     async def queue_localai_download(name: str, variant: str = "") -> dict[str, Any]:
+        # Repeated clicks / tabs must share an active transfer, not compete to
+        # write the same model files. No await occurs before inserting the job.
+        for existing in localai_download_jobs.values():
+            if (existing.get("model") == name and existing.get("variant", "") == variant
+                    and existing.get("status") in {"queued", "downloading"}):
+                return existing
         alice_job_id = secrets.token_urlsafe(12)
         job = {
             "id": alice_job_id,
@@ -1189,7 +1323,22 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/voice/status", dependencies=[Depends(require_session)])
     async def voice_status() -> dict[str, Any]:
-        return {**openvoice_status(), "pipeline": voice_pipeline_status()}
+        return {
+            **openvoice_status(),
+            "transcription": transcription_status(),
+            "worker": await voice_worker_status(),
+            "pipeline": voice_pipeline_status(),
+        }
+
+    @app.post("/api/voice/transcribe", dependencies=[Depends(require_session)])
+    async def voice_transcribe(audio: UploadFile = File(...)) -> dict[str, str]:
+        try:
+            content = await audio.read(25 * 1024 * 1024 + 1)
+            return await transcribe_openvoice_audio(filename=audio.filename or "dictation.webm", content=content)
+        except VoiceError as error:
+            raise HTTPException(503, str(error)) from error
+        finally:
+            await audio.close()
 
     @app.post("/api/voice/warm", dependencies=[Depends(require_session)])
     async def voice_warm() -> dict[str, Any]:
@@ -1288,6 +1437,93 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             await socket.close(code=1008, reason="Invalid or inactive audio stream.")
         except WebSocketDisconnect:
             pass
+
+    @app.websocket("/api/voice/conversation")
+    async def voice_conversation(socket: WebSocket) -> None:
+        supplied = socket.cookies.get("alice_session") or socket.headers.get("X-Alice-Token", "")
+        network_cookie = socket.cookies.get("alice_network_access", "")
+        origin = urlparse(socket.headers.get("origin", ""))
+        expected_scheme = "https" if socket.url.scheme == "wss" else "http"
+        if (
+            (network_mode and not hmac.compare_digest(network_cookie, network_access_token))
+            or not supplied or not hmac.compare_digest(supplied, session_token)
+            or origin.scheme != expected_scheme
+            or origin.netloc != socket.headers.get("host")
+            or origin.path not in {"", "/"} or origin.query or origin.fragment
+        ):
+            await socket.close(code=1008)
+            return
+        await socket.accept()
+        local_status = transcription_status()
+        if not local_status["ready"]:
+            await socket.send_json({
+                "event": "error", "code": "unavailable", "recoverable": False,
+                "message": local_status["message"],
+            })
+            await socket.close(code=1013, reason="Local speech recognition is unavailable.")
+            return
+        lease = ConversationLease.acquire()
+        if lease is None:
+            await socket.send_json({
+                "event": "error", "code": "in_use", "recoverable": False,
+                "message": "Hands-free conversation is already active in another window.",
+            })
+            await socket.close(code=1013, reason="Hands-free conversation is already in use.")
+            return
+        send_lock = asyncio.Lock()
+
+        async def emit(event: dict[str, Any]) -> None:
+            async with send_lock:
+                await asyncio.wait_for(socket.send_json(event), timeout=5)
+
+        conversation = HandsFreeConversation(transcribe=transcribe_openvoice_audio, emit=emit)
+        try:
+            await emit({
+                "event": "ready", "sample_rate": 16000, "frame_ms": 20, "local": True,
+                "max_utterance_seconds": 15,
+            })
+            last_packet = time.monotonic()
+            while True:
+                try:
+                    packet = await asyncio.wait_for(socket.receive(), timeout=0.5)
+                except TimeoutError:
+                    if time.monotonic() - last_packet > 30:
+                        await socket.close(code=1008, reason="Inactive audio stream.")
+                        break
+                    await conversation.tick()
+                    continue
+                last_packet = time.monotonic()
+                if packet["type"] == "websocket.disconnect":
+                    break
+                pcm = packet.get("bytes")
+                if pcm is not None:
+                    await conversation.feed(pcm)
+                    continue
+                control = packet.get("text")
+                if control is None or len(control) > 2048:
+                    raise ValueError("Send PCM16 audio or a small JSON control message.")
+                try:
+                    message = json.loads(control)
+                except (json.JSONDecodeError, RecursionError) as error:
+                    raise ValueError("Control messages must be valid JSON objects.") from error
+                if not isinstance(message, dict):
+                    raise ValueError("Control messages must be JSON objects.")
+                await conversation.control(message)
+        except ValueError as error:
+            await socket.close(code=1008, reason=str(error)[:120])
+        except (WebSocketDisconnect, TimeoutError, RuntimeError, OSError):
+            pass
+        finally:
+            pending = conversation.close()
+            if pending is None:
+                ConversationLease.release(lease)
+            else:
+                def release_when_finished(task: asyncio.Task[None]) -> None:
+                    if not task.cancelled():
+                        task.exception()
+                    ConversationLease.release(lease)
+
+                pending.add_done_callback(release_when_finished)
 
     @app.get("/api/voice/audio/{token}", dependencies=[Depends(require_session)])
     async def voice_audio(token: str) -> Response:

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .auth import create_auth_file
 from .config import default_data_dir, installation_file
+from .paths import bundled
 
 
 def initialize_installation(data_dir: Path, username: str, password: str) -> Path:
@@ -18,7 +19,7 @@ def initialize_installation(data_dir: Path, username: str, password: str) -> Pat
         raise ValueError("Choose an absolute data directory")
     target = target.resolve()
     pointer = installation_file()
-    if target == pointer.parent or pointer.parent in target.parents:
+    if not bundled() and (target == pointer.parent or pointer.parent in target.parents):
         raise ValueError("Choose a data directory outside the Alice application folder")
     if pointer.exists():
         raise ValueError("Installation is already configured; its location was not changed")

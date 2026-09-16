@@ -16,6 +16,8 @@ import httpx
 import yaml
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
+from .paths import bundled
+
 
 class RuntimeOperationError(RuntimeError):
     pass
@@ -219,8 +221,14 @@ async def inspect_huggingface_repository(
             if filename.casefold().endswith(".safetensors") or filename == "config.json":
                 has_transformers_files = True
         parameter_count: int | None = None
+        compatibility_message = ""
         try:
             model_info = client.model_info(repository, revision=revision)
+            model_config = getattr(model_info, "config", None)
+            if isinstance(model_config, dict) and model_config.get("model_type") == "gemma4_assistant":
+                compatibility_message = ("This is a Gemma 4 draft companion, not a standalone chat model. "
+                                         "It requires the matching target model and a compatible speculative-decoding runtime. "
+                                         "Downloading these files alone will not enable chat in Alice.")
             safetensors = getattr(model_info, "safetensors", None)
             total_parameters = getattr(safetensors, "total", None)
             if isinstance(total_parameters, int) and total_parameters > 0:
@@ -237,6 +245,7 @@ async def inspect_huggingface_repository(
             "total_size": total_size,
             "weight_size": weight_size or None,
             "parameter_count": parameter_count,
+            "compatibility_message": compatibility_message,
             **estimates,
             "gpu": gpu_status(),
             "format": "gguf"
@@ -381,6 +390,11 @@ def localai_executable() -> str | None:
 
 
 def llama_cpp_executable() -> Path:
+    if bundled():
+        from .config import default_data_dir
+        return default_data_dir() / "runtimes" / "llama.cpp" / "bin3" / (
+            "llama-server.exe" if os.name == "nt" else "llama-server"
+        )
     return Path(__file__).resolve().parents[2] / "tools" / "llama.cpp" / "bin3" / (
         "llama-server.exe" if os.name == "nt" else "llama-server"
     )
@@ -1130,7 +1144,7 @@ async def runtime_status() -> dict[str, Any]:
     docker = shutil.which("docker")
     llama_executable = llama_cpp_executable()
     status: dict[str, Any] = {
-        "gpu": gpu_status(),
+        "gpu": {},
         "ollama": {
             "installed": bool(executable),
             "executable": executable,
@@ -1154,69 +1168,76 @@ async def runtime_status() -> dict[str, Any]:
             "base_url": "http://127.0.0.1:8081",
         },
     }
-    try:
-        async with httpx.AsyncClient(timeout=2.0, follow_redirects=False) as client:
-            version_response = await client.get("http://127.0.0.1:11434/api/version")
-            version_response.raise_for_status()
-            tags_response = await client.get("http://127.0.0.1:11434/api/tags")
-            tags_response.raise_for_status()
-            ollama_models = tags_response.json().get("models", [])
-            status["ollama"].update(
-                {
-                    "running": True,
-                    "version": version_response.json().get("version", ""),
-                    "models": [
-                        model.get("name", "") for model in ollama_models if model.get("name")
-                    ],
-                    "model_details": [
-                        {
-                            "name": model.get("name", ""),
-                            "size": model.get("size"),
-                            "modified_at": model.get("modified_at", ""),
-                        }
-                        for model in ollama_models
-                        if model.get("name")
-                    ],
-                }
-            )
-    except (httpx.HTTPError, ValueError):
-        pass
-    # LocalAI exposes an OpenAI-compatible model endpoint.  /readyz keeps a
-    # running llama.cpp server on the adjacent port from being misidentified.
-    try:
-        async with httpx.AsyncClient(timeout=2.0, follow_redirects=False) as client:
-            ready_response = await client.get(f"{localai_base_url()}/readyz")
-            ready_response.raise_for_status()
-            models_response = await client.get(f"{localai_base_url()}/v1/models")
-            models_response.raise_for_status()
-            payload = models_response.json()
-            models = payload.get("data", []) if isinstance(payload, dict) else []
-            status["localai"].update(
-                {
-                    "running": True,
-                    "models": [
-                        item.get("id", "") for item in models
-                        if isinstance(item, dict) and item.get("id")
-                    ],
-                }
-            )
-    except (httpx.HTTPError, ValueError):
-        pass
-    try:
-        async with httpx.AsyncClient(timeout=2.0, follow_redirects=False) as client:
-            health_response = await client.get("http://127.0.0.1:8081/health")
-            health_response.raise_for_status()
-            status["llama_cpp"]["running"] = True
-            try:
-                health = health_response.json()
-                if isinstance(health, dict):
-                    status["llama_cpp"]["status"] = health.get("status", "ok")
-            except ValueError:
-                status["llama_cpp"]["status"] = "ok"
-    except (httpx.HTTPError, ValueError):
-        pass
-    return status
+    async def probe_ollama() -> None:
+        try:
+            async with httpx.AsyncClient(timeout=2.0, follow_redirects=False) as client:
+                version_response = await client.get("http://127.0.0.1:11434/api/version")
+                version_response.raise_for_status()
+                tags_response = await client.get("http://127.0.0.1:11434/api/tags")
+                tags_response.raise_for_status()
+                ollama_models = tags_response.json().get("models", [])
+                status["ollama"].update(
+                    {
+                        "running": True,
+                        "version": version_response.json().get("version", ""),
+                        "models": [
+                            model.get("name", "") for model in ollama_models if model.get("name")
+                        ],
+                        "model_details": [
+                            {
+                                "name": model.get("name", ""),
+                                "size": model.get("size"),
+                                "modified_at": model.get("modified_at", ""),
+                            }
+                            for model in ollama_models
+                            if model.get("name")
+                        ],
+                    }
+                )
+        except (httpx.HTTPError, ValueError):
+            pass
 
+    async def probe_localai() -> None:
+        try:
+            async with httpx.AsyncClient(timeout=2.0, follow_redirects=False) as client:
+                ready_response = await client.get(f"{localai_base_url()}/readyz")
+                ready_response.raise_for_status()
+                models_response = await client.get(f"{localai_base_url()}/v1/models")
+                models_response.raise_for_status()
+                payload = models_response.json()
+                models = payload.get("data", []) if isinstance(payload, dict) else []
+                status["localai"].update(
+                    {
+                        "running": True,
+                        "models": [
+                            item.get("id", "") for item in models
+                            if isinstance(item, dict) and item.get("id")
+                        ],
+                    }
+                )
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    async def probe_llama() -> None:
+        try:
+            async with httpx.AsyncClient(timeout=2.0, follow_redirects=False) as client:
+                health_response = await client.get("http://127.0.0.1:8081/health")
+                health_response.raise_for_status()
+                status["llama_cpp"]["running"] = True
+                try:
+                    health = health_response.json()
+                    if isinstance(health, dict):
+                        status["llama_cpp"]["status"] = health.get("status", "ok")
+                except ValueError:
+                    status["llama_cpp"]["status"] = "ok"
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    async def probe_gpu() -> None:
+        status["gpu"] = await asyncio.to_thread(gpu_status)
+
+    await asyncio.gather(probe_ollama(), probe_localai(), probe_llama(), probe_gpu())
+    return status
 
 async def local_model_library(data_dir: Path) -> dict[str, Any]:
     status = await runtime_status()

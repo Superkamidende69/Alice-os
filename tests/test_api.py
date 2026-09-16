@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from collections import deque
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from alice_os.agent import AgentRun, RunEvent
 from alice_os.api import create_app
 from alice_os.voice import resolve_voice_style
 
@@ -62,6 +65,68 @@ def test_api_requires_session_token_and_rejects_foreign_origin(
         assert rejected_origin.status_code == 403
 
 
+def test_system_status_is_authenticated_and_reports_probe_results(monkeypatch, tmp_path: Path) -> None:
+    async def models(profile):
+        return ["test-model"]
+
+    monkeypatch.setattr("alice_os.api.list_models", models)
+    app = create_app(tmp_path / "data")
+    app.state.config.set_active_model("test-model")
+    with TestClient(app) as client:
+        assert client.get("/api/system/status").status_code == 401
+        client.get("/")
+        response = client.get("/api/system/status")
+        assert response.status_code == 200
+        status = response.json()
+        assert status["provider"]["ready"] is True
+        assert status["provider"]["model"] == "test-model"
+        assert status["active_runs"] == status["pending_approvals"] == 0
+        assert status["process"]["rss_bytes"] > 0
+        assert status["uptime_seconds"] >= 0
+        assert "api_key_env" not in status["provider"]
+        assert client.get("/api/system/status", headers={"Origin": "https://attacker.example"}).status_code == 403
+
+
+def test_running_session_conflicts_and_deletion_cleans_up(monkeypatch, tmp_path: Path) -> None:
+    async def infer(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("alice_os.agent.chat", infer)
+    app = create_app(tmp_path / "data")
+    with TestClient(app) as client:
+        headers = {"X-Alice-Token": app.state.session_token}
+        session = client.post("/api/sessions", headers=headers, json={"workspace": str(tmp_path)}).json()
+        body = {"session_id": session["id"], "message": "Hello", "provider_id": "ollama", "model": "test-model"}
+        assert client.post("/api/runs", headers=headers, json={**body, "model": " "}).status_code == 400
+        started = client.post("/api/runs", headers=headers, json=body)
+        assert started.status_code == 200
+        run = app.state.runs.get(started.json()["run_id"])
+        assert client.post("/api/runs", headers=headers, json=body).status_code == 409
+        assert client.patch(f"/api/sessions/{session['id']}", headers=headers, json={"model": "other"}).status_code == 409
+        assert client.delete(f"/api/sessions/{session['id']}", headers=headers).status_code == 204
+        assert run.task.done() and run.terminal
+        assert run.events[-1].name == "cancelled"
+        assert client.get(f"/api/sessions/{session['id']}", headers=headers).status_code == 404
+
+
+def test_sse_reconnect_resumes_after_last_event_id(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "data")
+    run = AgentRun(id="reconnect", session_id="session", terminal=True, sequence=3,
+                   finished_at=time.monotonic(), events=deque([
+                       RunEvent(1, "token", {"text": "first"}),
+                       RunEvent(2, "token", {"text": "second"}),
+                       RunEvent(3, "done", {"status": "completed"}),
+                   ]))
+    app.state.runs.runs[run.id] = run
+    with TestClient(app) as client:
+        headers = {"X-Alice-Token": app.state.session_token, "Last-Event-ID": "2"}
+        response = client.get(f"/api/runs/{run.id}/events", headers=headers)
+        assert response.status_code == 200
+        assert "event: done" in response.text
+        assert "event: token" not in response.text
+        assert "id: 3" in response.text
+
+
 def test_voice_status_is_session_protected(tmp_path: Path) -> None:
     app = create_app(tmp_path / "data")
     with TestClient(app) as client:
@@ -109,6 +174,24 @@ def test_voice_warm_uses_the_authenticated_local_api(monkeypatch, tmp_path: Path
         response = client.post("/api/voice/warm", headers={"X-Alice-Token": app.state.session_token})
         assert response.status_code == 200
         assert response.json()["warmed"] is True
+
+
+def test_local_voice_transcription_is_session_protected(monkeypatch, tmp_path: Path) -> None:
+    async def fake_transcribe(**kwargs: object) -> dict[str, str]:
+        assert kwargs["filename"] == "dictation.webm"
+        assert kwargs["content"] == b"webm-audio"
+        return {"text": "Hello Alice", "language": "en"}
+
+    monkeypatch.setattr("alice_os.api.transcribe_openvoice_audio", fake_transcribe)
+    app = create_app(tmp_path / "data")
+    with TestClient(app) as client:
+        files = {"audio": ("dictation.webm", b"webm-audio", "audio/webm")}
+        assert client.post("/api/voice/transcribe", files=files).status_code == 401
+        response = client.post(
+            "/api/voice/transcribe", headers={"X-Alice-Token": app.state.session_token}, files=files
+        )
+        assert response.status_code == 200
+        assert response.json() == {"text": "Hello Alice", "language": "en"}
 
 
 def test_voice_style_presets_and_bounds() -> None:

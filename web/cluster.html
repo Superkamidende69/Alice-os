@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Alice · Cluster</title>
+  <title>Alice · Network</title>
   <link rel="stylesheet" href="/static/cluster.css">
+  <link rel="stylesheet" href="/static/refined.css?v=metrics-20260910">
+  <script src="/static/interface.js?v=finish-20260910" defer></script>
   <script src="/static/cluster.js?v=gpu-controls-2" defer></script>
 </head>
-<body>
+<body class="cluster-page">
   <main>
     <nav><a href="/">← Alice Chat</a><a href="/models">Models</a></nav>
     <header><p class="eyebrow">ALICE NETWORK</p><h1>More machines. One conversation.</h1>
@@ -29,6 +31,19 @@
           <button type="submit">Save sharing settings</button>
         </form>
         </details>
+        <h3>Join an existing Alice network</h3>
+        <p>Sign in with the account on your main Alice host. Alice securely pairs this worker with it automatically; your password is used once and is not saved here.</p>
+        <form id="network-join-form">
+          <label>Main host HTTPS address<input id="controller-url" type="url" placeholder="https://aliceos.local" required></label>
+          <label>Main host username<input id="controller-username" autocomplete="username" required></label>
+          <label>Main host password<input id="controller-password" type="password" autocomplete="current-password" required></label>
+          <label>This machine’s name<input id="network-worker-name" maxlength="80" placeholder="GPU workstation" required></label>
+          <label>This machine’s HTTPS address<input id="network-worker-url" type="url" placeholder="https://alice-worker.local" required></label>
+          <label>Main host CA certificate (if not trusted)<textarea id="controller-ca" rows="3" placeholder="-----BEGIN CERTIFICATE-----"></textarea></label>
+          <p>Use the address other PCs can reach. If Alice uses its local HTTPS certificate, paste the main host’s public CA certificate below.</p>
+          <button type="submit">Join network and connect</button>
+        </form>
+        <details><summary>Manual pairing</summary>
         <h3>Pair this machine with your controller</h3>
         <button id="pair-code" type="button" class="secondary">Create pairing code</button>
         <p>Codes expire after five minutes and can be used once.</p>
@@ -37,11 +52,12 @@
           <p>Copy this public certificate directly from this worker into the controller form. Never copy a private key.</p>
           <textarea id="certificate" rows="8" readonly aria-label="Worker public CA certificate"></textarea>
         </details>
+        </details>
         <h3>Authorized controllers</h3><div id="controllers"></div>
       </section>
       <section>
         <p class="eyebrow">FROM THIS CONTROLLER</p><h2>Add a worker</h2>
-        <p>In the Tailscale app, sign both PCs into the same network. On the other PC, open Alice’s Cluster page and start GPU sharing. Copy its pairing code and public certificate here.</p>
+        <p>In the Tailscale app, sign both PCs into the same network. On the other PC, open Alice’s Network page and start GPU sharing. Copy its pairing code and public certificate here.</p>
         <p>For the worker address, use HTTPS followed by the worker’s IPv4 address copied from Tailscale. If Tailscale was installed after Alice started, restart Alice on that worker to include its new address in the certificate.</p>
         <form id="join-form">
           <label>Connection name<input id="name" maxlength="80" placeholder="GPU workstation" required></label>

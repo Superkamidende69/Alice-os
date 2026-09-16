@@ -1,4 +1,5 @@
 .venv/
+.venv-janus/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -23,3 +24,8 @@ tools/
 
 .alice-install.json
 .alice-install.tmp
+
+# Local verification data and generated PyInstaller specifications.
+work/
+/AliceOS.spec
+/AliceOS-Installer.spec

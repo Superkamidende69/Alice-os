@@ -7,6 +7,22 @@ worker's model in the existing Chat model picker; dispatch is manual in this rel
 
 ## Connect two machines
 
+### Join an existing Alice network (recommended)
+
+On a new worker, start Alice in HTTPS LAN mode and open **Cluster**. Enable GPU
+or inference sharing, then choose **Join an existing Alice network**. Enter the
+main host's HTTPS address and the username and password already used on that
+main host. Give the worker an address reachable by the main host; paste the
+main host's public CA certificate if it is not already trusted.
+
+Alice sends the password directly to the main host over HTTPS for that one
+request, creates a short-lived pairing code in memory, and immediately pairs
+the worker. The password is not saved on the worker or in cluster settings.
+Afterward the main host retains only a dedicated, revocable worker credential,
+so the worker connects automatically whenever both machines are online.
+
+### Manual pairing
+
 1. Install this version of Alice on both machines. On the worker, start a local
    Ollama, llama.cpp, or other supported model service and confirm that it can
    answer a normal local Alice conversation. Models stay on the worker's disk.
@@ -85,8 +101,10 @@ For experimental single-model GPU splitting, see [distributed GPUs](distributed-
 
 This release does not implement automatic LAN discovery of workers, capability
 scheduling, a durable job queue, remote shell/file tools, project transfer, GPU
-inventory, general RAM/VRAM pooling, or controller
-failover. SQLite remains local to each Alice instance.
+inventory, general RAM/VRAM pooling, or controller failover. Joining an
+existing network creates the secure controller-to-worker connection from an
+address supplied by the owner; it does not discover arbitrary machines. SQLite
+remains local to each Alice instance.
 
 ## Validation
 

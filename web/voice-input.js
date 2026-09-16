@@ -2,13 +2,14 @@
 (() => {
   "use strict";
   class VoiceInput {
-    constructor({ onSpeech, onError }) {
+    constructor({ onSpeech = () => {}, onError = () => {} } = {}) {
       this.onSpeech = onSpeech;
       this.onError = onError;
       this.generation = 0;
     }
 
     async start() {
+      window.AliceVoiceExperience?.stopTest?.();
       this.stop();
       const generation = this.generation;
       const current = () => generation === this.generation;
@@ -18,6 +19,7 @@
         }
         const stream = await navigator.mediaDevices.getUserMedia({ audio: {
           channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+          ...window.AliceVoiceExperience?.audioConstraints(),
         } });
         if (!current()) {
           stream.getTracks().forEach((track) => track.stop());
@@ -27,10 +29,13 @@
         stream.getTracks().forEach((track) => track.addEventListener("ended", () => {
           if (current()) this.fail(new Error("The microphone was disconnected."));
         }));
-        const context = new AudioContext({ sampleRate: 16000, latencyHint: "interactive" });
+        const Context = window.AudioContext || window.webkitAudioContext;
+        if (!Context) throw new Error("This browser does not support local audio processing.");
+        const context = new Context({ sampleRate: 16000, latencyHint: "interactive" });
         this.context = context;
         if (context.sampleRate !== 16000) throw new Error("16 kHz microphone audio is unavailable.");
         await context.resume();
+        if (!current()) return false;
         await context.audioWorklet.addModule("/static/voice-capture.js");
         if (!current()) return false;
         const url = new URL("/api/voice/activity", location.href);
@@ -38,18 +43,35 @@
         const socket = new WebSocket(url);
         this.socket = socket;
         await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error("Voice detection did not connect.")), 8000);
+          let settled = false;
+          const timeout = setTimeout(() => finish(new Error("Voice detection did not connect.")), 8000);
           const finish = (error) => {
+            if (settled) return;
+            settled = true;
             clearTimeout(timeout);
+            this.cancelConnect = null;
             error ? reject(error) : resolve();
           };
+          this.cancelConnect = () => finish(new Error("Microphone connection cancelled."));
           socket.onmessage = (message) => {
             if (!current()) return;
-            const event = JSON.parse(message.data).event;
+            let event;
+            try { event = JSON.parse(message.data).event; }
+            catch {
+              const error = new Error("Voice detection sent an invalid response.");
+              finish(error);
+              this.fail(error);
+              return;
+            }
             if (event === "ready") finish();
             else if (event === "speech_start") this.onSpeech();
           };
-          socket.onerror = () => finish(new Error("Voice detection connection failed."));
+          socket.onerror = () => {
+            if (!current()) return;
+            const error = new Error("Voice detection connection failed.");
+            finish(error);
+            this.fail(error);
+          };
           socket.onclose = () => {
             const error = new Error("Voice detection disconnected. Enable it again to reconnect.");
             finish(error);
@@ -61,13 +83,16 @@
         const capture = new AudioWorkletNode(context, "alice-voice-capture");
         this.source = source;
         this.capture = capture;
+        capture.onprocessorerror = () => { if (current()) this.fail(new Error("Microphone processing stopped. Enable it again to reconnect.")); };
+        capture.port.onmessageerror = capture.onprocessorerror;
         capture.port.onmessage = ({ data }) => {
           if (!current() || socket.readyState !== WebSocket.OPEN) return;
           if (socket.bufferedAmount > 6400) {
             this.fail(new Error("Voice detection is falling behind. Enable it again to reconnect."));
             return;
           }
-          socket.send(data);
+          try { socket.send(data); }
+          catch { this.fail(new Error("Voice detection could not receive microphone audio.")); }
         };
         // The processor outputs silence; microphone audio is never played back.
         source.connect(capture);
@@ -81,15 +106,26 @@
 
     fail(error) {
       this.stop();
-      this.onError(error);
+      const message = window.AliceVoiceCommands?.microphoneError(error);
+      this.onError(message ? new Error(message) : error);
     }
 
     stop() {
       this.generation += 1;
-      this.capture?.disconnect();
-      this.source?.disconnect();
+      this.cancelConnect?.();
+      this.cancelConnect = null;
+      if (this.capture) {
+        this.capture.port.onmessage = null;
+        this.capture.port.onmessageerror = null;
+        this.capture.onprocessorerror = null;
+        try { this.capture.disconnect(); } catch {}
+      }
+      try { this.source?.disconnect(); } catch {}
       this.stream?.getTracks().forEach((track) => track.stop());
-      this.socket?.close();
+      if (this.socket) {
+        this.socket.onmessage = this.socket.onerror = this.socket.onclose = null;
+        try { this.socket.close(); } catch {}
+      }
       this.context?.close().catch(() => {});
       this.capture = this.source = this.stream = this.socket = this.context = null;
     }

@@ -2,4 +2,6 @@
 setlocal
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1" %*
-exit /b %errorlevel%
+set "SETUP_EXIT=%ERRORLEVEL%"
+if not "%SETUP_EXIT%"=="0" pause
+exit /b %SETUP_EXIT%

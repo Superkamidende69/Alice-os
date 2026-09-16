@@ -3,12 +3,12 @@ from pathlib import Path
 from alice_os.config import ConfigStore
 
 
-def test_new_settings_use_localai_as_primary_provider(tmp_path: Path) -> None:
+def test_new_settings_use_managed_llama_as_primary_provider(tmp_path: Path) -> None:
     settings = ConfigStore(tmp_path).get()
 
-    assert settings.active_provider_id == "localai"
-    assert [provider.id for provider in settings.providers[:2]] == ["localai", "ollama"]
-    assert settings.providers[0].base_url == "http://127.0.0.1:8080"
+    assert settings.active_provider_id == "llama_cpp_local"
+    assert [provider.id for provider in settings.providers[:3]] == ["llama_cpp_local", "localai", "ollama"]
+    assert settings.providers[0].base_url == "http://127.0.0.1:8081/v1"
 
 
 def test_existing_settings_migrate_without_dropping_custom_providers(tmp_path: Path) -> None:
@@ -25,7 +25,7 @@ def test_existing_settings_migrate_without_dropping_custom_providers(tmp_path: P
 
     settings = ConfigStore(tmp_path).get()
 
-    assert settings.active_provider_id == "localai"
+    assert settings.active_provider_id == "llama_cpp_local"
     assert settings.active_model == ""
     assert [provider.id for provider in settings.providers] == [
         "localai",
@@ -35,4 +35,3 @@ def test_existing_settings_migrate_without_dropping_custom_providers(tmp_path: P
     ]
     llama = next(provider for provider in settings.providers if provider.id == "llama_cpp_local")
     assert llama.base_url == "http://127.0.0.1:8081/v1"
-
