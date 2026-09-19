@@ -4,6 +4,7 @@ import re
 import unicodedata
 import uuid
 import wave
+from array import array
 from pathlib import Path
 from typing import Callable
 
@@ -103,6 +104,26 @@ def pause_after(text: str) -> float:
     return 0.04
 
 
+def trim_padding(audio: bytes, channels: int, sample_width: int, rate: int) -> bytes:
+    """Remove long silent margins, keeping 30 ms around quiet consonants."""
+    if sample_width != 2 or not audio:
+        return audio
+    samples = array("h")
+    samples.frombytes(audio)
+    import sys
+    if sys.byteorder != "little":
+        samples.byteswap()
+    first = next((i for i, value in enumerate(samples) if abs(value) > 32), None)
+    if first is None:
+        return audio
+    last = len(samples) - next(i for i, value in enumerate(reversed(samples)) if abs(value) > 32)
+    pad = int(rate * .03) * channels
+    minimum = int(rate * .12) * channels
+    start = max(0, (first // channels) * channels - pad) if first > minimum else 0
+    end = min(len(samples), ((last + channels - 1) // channels) * channels + pad) if len(samples) - last > minimum else len(samples)
+    return audio[start * sample_width:end * sample_width]
+
+
 def tts_to_wav(
     model: object, text: str, speaker_id: int, output: Path, speed: float,
     noise_scale: float, noise_scale_w: float, sdp_ratio: float,
@@ -131,7 +152,7 @@ def tts_to_wav(
                 with wave.open(str(part), "rb") as source:
                     if source.getparams()[:3] != parameters[:3]:
                         raise RuntimeError("OpenVoice generated incompatible speech segments.")
-                    combined.writeframes(source.readframes(source.getnframes()))
+                    combined.writeframes(trim_padding(source.readframes(source.getnframes()), parameters.nchannels, parameters.sampwidth, parameters.framerate))
                     # Include the last pause: browser streaming often requests
                     # just one sentence per WAV. Playback speed never compresses
                     # these pauses because silence is added after synthesis.

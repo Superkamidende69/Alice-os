@@ -549,6 +549,23 @@ async def _synthesize_openvoice(
     if len(clean_text) > 8_000:
         raise VoiceError("Voice output is limited to 8,000 characters at a time.")
 
+    if speaker.startswith("VOICEBOX:"):
+        if reference:
+            raise VoiceError("Select or clone the voice in Voicebox; Alice's OpenVoice references do not apply.")
+        from .voicebox import synthesize
+        return await synthesize(clean_text, speaker, cancellation)
+
+    if speaker.startswith("KOKORO-"):
+        if reference:
+            raise VoiceError("Kokoro uses its built-in voices. Clear the reference recording or select OpenVoice for cloning.")
+        from .kokoro import synthesize
+        try:
+            return await synthesize(clean_text, speaker, speed, data_dir, cancellation)
+        except VoiceInterrupted:
+            raise
+        except (RuntimeError, OSError, ValueError, TimeoutError) as error:
+            raise VoiceError(str(error) or "Kokoro speech timed out.") from error
+
     prosody = resolve_voice_style(style, noise_scale, noise_scale_w, sdp_ratio)
 
     if speaker == WINDOWS_FEMALE_SPEAKER:

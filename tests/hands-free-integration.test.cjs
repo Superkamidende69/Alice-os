@@ -66,6 +66,17 @@ function speech(api, text = "Tell me about the weather", interrupt = false) {
   return api.receiveHandsFreeTranscript({ turn_id: "turn-1", text });
 }
 
+test("memory requests use the normal hands-free reply lifecycle and navigation opens review", async () => {
+  const api = harness();
+  await speech(api, "Remember that I prefer concise answers.");
+  assert.deepEqual(api.sent, ["Remember that I prefer concise answers."]);
+  assert.equal(api.acknowledgements[0].accepted, true);
+  const review = harness();
+  await speech(review, "Open memory");
+  assert.deepEqual(review.commands, ["memory"]);
+  assert.deepEqual(review.sent, []);
+});
+
 test("recognized requests use the regular composer and continue listening only after the full reply drains", async () => {
   const api = harness();
   await speech(api);

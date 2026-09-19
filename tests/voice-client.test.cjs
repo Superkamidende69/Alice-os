@@ -41,6 +41,17 @@ function conversation() {
   return { bufferedText: "", textQueue: [], audioQueue: [], cancelled: false, synthesisActive: false, reportedError: false };
 }
 
+test("Kokoro keeps a complete phrase and closing quotes in the same speech chunk", () => {
+  const api = harness();
+  api.els.voiceSpeaker.value = "KOKORO-HEART";
+  const turn = conversation();
+  const sentence = "Here is a longer thought, with a natural pause in the middle, and enough context to keep the sentence flowing right through to its conclusion.";
+  turn.bufferedText = sentence + ' She said "ready." Next';
+  api.voiceChunks(turn);
+  assert.equal(turn.textQueue[0], sentence);
+  assert.equal(turn.textQueue[1], 'She said "ready."');
+});
+
 test("manual playback of the last blocked clip releases follow-up listening", async () => {
   const api = harness();
   const contexts = [];

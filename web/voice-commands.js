@@ -10,6 +10,8 @@
     ["open models", "models"], ["open model library", "models"],
     ["open voice", "voice"], ["open voice settings", "voice"],
     ["open settings", "settings"], ["open workspace", "workspace"],
+    ["open memory", "memory"], ["open memories", "memory"],
+    ["open world view", "world"], ["open the globe", "world"], ["open gods eye", "world"], ["open god's eye", "world"], ["open god’s eye", "world"],
     ["system status", "system"], ["check system health", "system"],
     ["open command center", "commands"], ["open command palette", "commands"],
     ["clear dictation", "clear-dictation"],

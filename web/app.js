@@ -59,6 +59,11 @@
     skillInstructions: $("#skill-instructions"),
     skillReadOnly: $("#skill-read-only"),
     skillFormMessage: $("#skill-form-message"),
+    skillPackageList: $("#skill-package-list"),
+    skillPackageTemplates: $("#skill-package-templates"),
+    skillPackageManifest: $("#skill-package-manifest"),
+    skillPackageImport: $("#skill-package-import"),
+    skillPackageMessage: $("#skill-package-message"),
     voiceOutput: $("#voice-output"),
     voicePanelOutput: $("#voice-panel-output"),
     openVoiceStudio: $("#open-voice-studio"),
@@ -99,6 +104,10 @@
     voicePresetLibrary: $("#voice-preset-library"),
     voicePresetCurrent: $("#voice-preset-current"),
     voiceSpeaker: $("#voice-speaker"),
+    voiceboxStatus: $("#voicebox-status"),
+    voiceboxStart: $("#voicebox-start"),
+    voiceboxStudio: $("#voicebox-studio"),
+    voiceboxRefresh: $("#voicebox-refresh"),
     voiceSpeed: $("#voice-speed"),
     voiceStyle: $("#voice-style"),
     voiceStyleHelp: $("#voice-style-help"),
@@ -678,10 +687,31 @@
     els.profileList.append(fragment);
   }
 
-  function renderMemories(memories) {
+  let memoryEntries = [];
+  let editingMemoryId = null;
+  let memoryLoadVersion = 0;
+
+  function openMemory() {
+    const dialog = $("#memory-dialog");
+    openDialog(dialog);
+    void loadMemories();
+  }
+
+  function resetMemoryEditor() {
+    editingMemoryId = null;
+    els.memoryForm.reset();
+    $("#memory-cancel-edit").hidden = true;
+    els.memoryForm.querySelector('[type="submit"]').textContent = "Remember";
+  }
+
+  function renderMemories(memories = memoryEntries) {
+    memoryEntries = memories;
+    const shown = window.AliceMemory.filter(memories, $("#memory-search").value, $("#memory-filter").value);
     els.memoryList.replaceChildren();
-    els.memoryEmpty.hidden = memories.length > 0;
-    for (const memory of memories) {
+    els.memoryEmpty.hidden = shown.length > 0;
+    const pending = memories.filter(m => m.approved === 0).length;
+    $("#memory-count").textContent = `${shown.length} shown · ${memories.length - pending} saved · ${pending} awaiting approval`;
+    for (const memory of shown) {
       const item = document.createElement("article");
       item.className = "profile-card memory-card";
       const details = document.createElement("div");
@@ -689,42 +719,51 @@
       const text = document.createElement("strong");
       text.textContent = memory.content;
       const meta = document.createElement("small");
-      meta.textContent = `${titleCaseStatus(memory.category || "fact")} · importance ${memory.importance || 3}/5`;
+      meta.textContent = `${titleCaseStatus(memory.category || "fact")} · ${memory.approved === 0 ? "Needs approval — not used in replies" : "Saved"} · ${new Date(memory.updated_at || memory.created_at).toLocaleDateString()}`;
       details.append(text, meta);
       const actions = document.createElement("div");
       actions.className = "profile-actions";
+      if (memory.approved === 0) {
+        const approve = document.createElement("button");
+        approve.type = "button";
+        approve.className = "secondary-button";
+        approve.textContent = "Approve";
+        approve.addEventListener("click", async () => {
+          approve.disabled = true;
+          try {
+            await api(`/api/memories/${encodeURIComponent(memory.id)}/approve`, { method: "POST" });
+            if (editingMemoryId === memory.id) resetMemoryEditor();
+            await loadMemories();
+            els.memoryMessage.textContent = "Approved. Alice can now use this memory.";
+          } catch (error) { els.memoryMessage.textContent = error.message; approve.disabled = false; }
+        });
+        actions.append(approve);
+      }
       const edit = document.createElement("button");
       edit.type = "button";
-      edit.className = "icon-button";
-      edit.title = "Edit memory";
-      edit.setAttribute("aria-label", "Edit memory");
-      edit.textContent = "✎";
-      edit.addEventListener("click", async () => {
-        const content = window.prompt("Edit memory", memory.content);
-        if (content === null || !content.trim() || content.trim() === memory.content) return;
-        try {
-          await api(`/api/memories/${encodeURIComponent(memory.id)}`, {
-            method: "PATCH", body: { content: content.trim() },
-          });
-          await loadMemories();
-        } catch (error) {
-          showToast(`Could not update memory: ${error.message}`, "error");
-        }
+      edit.className = "secondary-button";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", () => {
+        editingMemoryId = memory.id;
+        els.memoryInput.value = memory.content;
+        $("#memory-category").value = memory.category;
+        $("#memory-cancel-edit").hidden = false;
+        els.memoryForm.querySelector('[type="submit"]').textContent = "Save changes";
+        els.memoryMessage.textContent = memory.approved === 0 ? "Editing a suggestion does not approve it." : "Editing saved memory.";
+        els.memoryInput.focus();
       });
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.className = "icon-button";
-      remove.title = "Forget this memory";
-      remove.setAttribute("aria-label", "Forget this memory");
-      remove.innerHTML = '<svg aria-hidden="true"><use href="#icon-trash"></use></svg>';
+      remove.className = "secondary-button";
+      remove.textContent = memory.approved === 0 ? "Dismiss" : "Forget";
       remove.addEventListener("click", async () => {
-        if (!window.confirm("Forget this memory?")) return;
+        remove.disabled = true;
         try {
           await api(`/api/memories/${encodeURIComponent(memory.id)}`, { method: "DELETE" });
+          if (editingMemoryId === memory.id) resetMemoryEditor();
           await loadMemories();
-        } catch (error) {
-          showToast(`Could not forget memory: ${error.message}`, "error");
-        }
+          els.memoryMessage.textContent = "Removed from memory. Existing conversation messages are unchanged.";
+        } catch (error) { els.memoryMessage.textContent = error.message; remove.disabled = false; }
       });
       actions.append(edit, remove);
       item.append(details, actions);
@@ -733,11 +772,12 @@
   }
 
   async function loadMemories() {
+    const version = ++memoryLoadVersion;
     try {
       const data = await api("/api/memories");
-      renderMemories(asArray(data.memories));
+      if (version === memoryLoadVersion) renderMemories(asArray(data.memories));
     } catch (error) {
-      els.memoryMessage.textContent = `Could not load memories: ${error.message}`;
+      if (version === memoryLoadVersion) els.memoryMessage.textContent = `Could not load memories: ${error.message}`;
     }
   }
 
@@ -745,15 +785,20 @@
     event.preventDefault();
     const content = els.memoryInput.value.trim();
     if (!content) return;
+    const id = editingMemoryId;
+    const button = els.memoryForm.querySelector('[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true;
     els.memoryMessage.textContent = "Saving memory…";
     try {
-      await api("/api/memories", { method: "POST", body: { content } });
-      els.memoryForm.reset();
-      els.memoryMessage.textContent = "Memory saved across future conversations.";
+      await api(id ? `/api/memories/${encodeURIComponent(id)}` : "/api/memories", {
+        method: id ? "PATCH" : "POST", body: { content, category: $("#memory-category").value },
+      });
+      if (editingMemoryId === id && els.memoryInput.value.trim() === content) resetMemoryEditor();
+      els.memoryMessage.textContent = id ? "Changes saved." : "Memory saved across future conversations.";
       await loadMemories();
-    } catch (error) {
-      els.memoryMessage.textContent = error.message;
-    }
+    } catch (error) { els.memoryMessage.textContent = error.message; }
+    finally { button.disabled = false; }
   }
 
   function renderModels(models, preferred = "") {
@@ -1213,7 +1258,7 @@
   }
 
   function warmVoiceEngine() {
-    if (!state.backendOnline || els.voiceSpeaker.value === "WINDOWS-ZIRA") return Promise.resolve();
+    if (!state.backendOnline || els.voiceSpeaker.value === "WINDOWS-ZIRA" || els.voiceSpeaker.value.startsWith("KOKORO-") || els.voiceSpeaker.value.startsWith("VOICEBOX:")) return Promise.resolve();
     if (!state.voiceWarmPromise) {
       state.voiceWarmPromise = api("/api/voice/warm", { method: "POST" })
         .catch(() => {}) // A synthesis request will surface a useful error if the runtime is unavailable.
@@ -1238,12 +1283,14 @@
     // Bound each inference and prefer a complete thought over arbitrary token chunks.
     while (conversation.bufferedText.trim()) {
       const text = conversation.bufferedText;
-      const limit = conversation.spokenSegments ? 240 : 120;
+      const naturalVoice = els.voiceSpeaker.value.startsWith("KOKORO-") || els.voiceSpeaker.value.startsWith("VOICEBOX:");
+      const limit = naturalVoice ? 360 : (conversation.spokenSegments ? 240 : 120);
       let boundary = -1;
-      for (const match of text.matchAll(/[.!?]+(?=\s)|\n+/g)) {
+      for (const match of text.matchAll(/[.!?]+["'’”)\]]*(?=\s)|\n+/g)) {
         const end = match.index + match[0].length;
         if (end > limit) break;
         if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc)\.$/i.test(text.slice(0, end))) continue;
+        if (/\b(?:[A-Za-z]\.){1,4}$/.test(text.slice(0, end))) continue;
         if (end >= 12) { boundary = end; break; }
       }
       if (boundary < 0 && text.length > limit) {
@@ -1401,6 +1448,9 @@
   function restoreVoiceSettings() {
     const savedSpeaker = getStored("voice-speaker");
     const speaker = !savedSpeaker || savedSpeaker === "EN-US" ? "OPENVOICE-FEMALE" : savedSpeaker;
+    if (speaker.startsWith("VOICEBOX:") && ![...els.voiceSpeaker.options].some(option => option.value === speaker)) {
+      els.voiceSpeaker.add(new Option("Voicebox — saved profile (refresh to check)", speaker));
+    }
     const speed = getStored("voice-speed") || "1";
     const style = getStored("voice-style") || "balanced";
     els.voiceSpeaker.value = [...els.voiceSpeaker.options].some((option) => option.value === speaker) ? speaker : "EN-US";
@@ -1478,10 +1528,18 @@
 
   function updateVoiceControlAvailability() {
     const usesWindowsFallback = els.voiceSpeaker.value === "WINDOWS-ZIRA";
+    const usesKokoro = els.voiceSpeaker.value.startsWith("KOKORO-");
+    const usesVoicebox = els.voiceSpeaker.value.startsWith("VOICEBOX:");
+    els.voiceSpeed.disabled = usesVoicebox;
+    els.voiceReferenceSelect.disabled = usesKokoro || usesVoicebox;
     [els.voiceStyle, els.voiceNoiseScale, els.voiceNoiseScaleW, els.voiceSdpRatio].forEach((control) => {
-      control.disabled = usesWindowsFallback;
+      control.disabled = usesWindowsFallback || usesKokoro || usesVoicebox;
     });
-    els.voiceStyleHelp.textContent = usesWindowsFallback
+    els.voiceStyleHelp.textContent = usesVoicebox
+      ? "Voicebox controls the profile's voice, engine, and effects. Alice's speed and OpenVoice mood controls do not apply."
+      : usesKokoro
+      ? "Kokoro uses natural phrase delivery and supports speech speed. OpenVoice mood sliders and voice cloning do not apply."
+      : usesWindowsFallback
       ? "The Windows fallback supports speech speed only. Choose an OpenVoice profile for moods and prosody."
       : "Prosody changes delivery and rhythm while OpenVoice preserves the selected voice's tone color.";
   }
@@ -1491,7 +1549,7 @@
       text,
       speaker: els.voiceSpeaker.value,
       speed: Number(els.voiceSpeed.value),
-      reference: els.voiceReferenceSelect.value,
+      reference: /^(KOKORO-|VOICEBOX:)/.test(els.voiceSpeaker.value) ? "" : els.voiceReferenceSelect.value,
       style: els.voiceStyle.value,
       noise_scale: Number(els.voiceNoiseScale.value),
       noise_scale_w: Number(els.voiceNoiseScaleW.value),
@@ -1499,7 +1557,32 @@
     };
   }
 
+  async function loadVoicebox() {
+    try {
+      const info = await api("/api/voicebox/status");
+      const selected = els.voiceSpeaker.value;
+      for (const option of [...els.voiceSpeaker.options]) {
+        if (option.value.startsWith("VOICEBOX:")) option.remove();
+      }
+      for (const profile of asArray(info.profiles)) {
+        els.voiceSpeaker.add(new Option(`Voicebox · ${profile.name} · ${profile.engine}`, `VOICEBOX:${profile.id}`));
+      }
+      if (selected.startsWith("VOICEBOX:") && ![...els.voiceSpeaker.options].some(option => option.value === selected)) {
+        els.voiceSpeaker.add(new Option("Voicebox — saved profile unavailable", selected));
+      }
+      els.voiceSpeaker.value = selected;
+      els.voiceboxStatus.textContent = info.message + (info.ready && !info.profiles.length ? " Create a voice profile in Voicebox, then refresh." : "");
+      els.voiceboxStart.disabled = info.ready || !info.installed || !info.can_start;
+      els.voiceboxStudio.disabled = !info.installed || !info.can_start;
+      if (!info.installed && !info.ready) els.voiceboxStatus.textContent += " Setup: run scripts/setup-voicebox.py with Alice's Python, or open the Voicebox desktop app.";
+      updateVoiceControlAvailability();
+    } catch (error) {
+      els.voiceboxStatus.textContent = `Voicebox connection failed: ${error.message}`;
+    }
+  }
+
   async function loadVoiceStudio() {
+    loadVoicebox();
     els.voiceStudioMessage.textContent = "";
     els.voicePanelOutput.checked = els.voiceOutput.checked;
     els.voiceRuntimeState.textContent = "Checking local OpenVoice…";
@@ -1509,8 +1592,13 @@
         api("/api/system/status").catch(() => null),
       ]);
       state.localTranscriptionReady = Boolean(runtime.transcription?.ready);
+      const kokoroReady = Boolean(runtime.kokoro?.ready);
+      $("#kokoro-status").textContent = kokoroReady
+        ? "Kokoro is installed locally. Compare the voices below; the first preview loads the model."
+        : "Optional Kokoro voices need setup: run scripts/setup-kokoro.py using Alice’s Python.";
+      $$('[data-compare-voice^="KOKORO-"]').forEach(button => { button.disabled = !kokoroReady; });
       state.speechController?.refreshAvailability();
-      els.voiceRuntimeState.textContent = runtime.message || "OpenVoice status unavailable.";
+      els.voiceRuntimeState.textContent = (runtime.message || "OpenVoice status unavailable.") + (kokoroReady ? " Kokoro voices are also ready on CPU." : "");
       els.voiceRuntimeState.dataset.ready = String(Boolean(runtime.ready));
       const stages = asArray(runtime.pipeline?.stages).map((stage) => stage.id === "llm"
         ? { ...stage, ready: Boolean(system?.provider?.ready), detail: system?.provider?.detail || "Model readiness could not be checked." }
@@ -1634,7 +1722,8 @@
       : "Custom voice settings saved for this browser.";
   }
 
-  async function testVoice() {
+  async function testVoice(comparisonSpeaker = null) {
+    if (typeof comparisonSpeaker !== "string") comparisonSpeaker = null;
     stopVoicePreview();
     const preview = { requestId: createRequestId("voice-preview"), controller: new AbortController(), cancelled: false };
     state.voicePreview = preview;
@@ -1643,7 +1732,8 @@
     try {
       const response = await api("/api/voice/synthesize", {
         method: "POST",
-        body: { ...voiceSynthesisBody(els.voiceTestText.value.trim() || "Hello. Alice voice systems are online."), request_id: preview.requestId },
+        body: { ...voiceSynthesisBody(els.voiceTestText.value.trim() || "Hello. Alice voice systems are online."),
+          ...(comparisonSpeaker ? { speaker: comparisonSpeaker, reference: "" } : {}), request_id: preview.requestId },
         signal: preview.controller.signal,
       });
       preview.requestId = null;
@@ -1827,7 +1917,7 @@
   function updateComposerState() {
     syncHandsFreeContext();
     const hasText = Boolean(els.composerInput.value.trim());
-    const configured = Boolean(state.selectedProviderId && state.selectedModel);
+    const configured = Boolean(state.selectedProviderId && state.selectedModel) || Boolean(window.AliceMemory?.isCommand(els.composerInput.value));
     els.sendButton.disabled = Boolean(state.activeRun) || state.submitting || !hasText || !configured;
     els.newChat.disabled = Boolean(state.activeRun) || state.submitting;
     els.composerInput.disabled = false;
@@ -1861,12 +1951,13 @@
     const submittedDraft = els.composerInput.value;
     const message = els.composerInput.value.trim();
     if (!message || state.activeRun || state.submitting) return;
-    if (!state.selectedProviderId) {
+    const localMemoryCommand = Boolean(window.AliceMemory?.isCommand(message));
+    if (!state.selectedProviderId && !localMemoryCommand) {
       showToast("Choose or add a provider first.", "error");
       openDialog(els.settingsDialog);
       return;
     }
-    if (!state.selectedModel) {
+    if (!state.selectedModel && !localMemoryCommand) {
       showToast("Choose an installed model first.", "error");
       return;
     }
@@ -1915,6 +2006,7 @@
           model: state.selectedModel,
           agent_mode: agentMode,
           response_depth: $("#response-depth")?.value || "balanced",
+          spoken_response: Boolean(state.handsFreeEnabled || els.voiceOutput.checked),
           skill_id: els.skillSelect.value,
         },
       });
@@ -2066,6 +2158,7 @@
       finishRun("ready", "Ready");
       void restoreCompletedTranscript();
       refreshStateMetadata({ refreshModels: false }).catch(() => {});
+      void loadMemories();
     });
 
     listen("cancelled", () => {
@@ -4119,9 +4212,9 @@
       status("Microphone off. Enable listening when you are ready.");
     };
     const executeCommand = (command) => {
-      if (command === "system" || command === "commands") {
+      if (command === "system" || command === "commands" || command === "world") {
         window.AliceCommandCenter?.execute(command);
-        status(command === "system" ? "Checking system health." : "Command palette opened.");
+        status(command === "system" ? "Checking system health." : command === "world" ? "Opening World View." : "Command palette opened.");
         return;
       }
       if (command === "stop-listening") { stopAllListening(); return; }
@@ -4138,6 +4231,7 @@
         status("Cancel the current response before changing conversations or pages.");
         return;
       }
+      if (command === "memory") { openMemory(); return; }
       const targets = { "new-chat": els.newChat, models: els.openModelLibrary, voice: els.openVoiceStudio,
         settings: els.openSettings, workspace: els.openWorkspace };
       targets[command]?.click();
@@ -4465,15 +4559,18 @@
     const saved = getStored("agent-skill") || "general";
     els.skillSelect.replaceChildren();
     for (const skill of state.skills) {
-      els.skillSelect.add(new Option(`${skill.name} — ${skill.description}`, skill.id));
+      const option = new Option(`${skill.name} — ${skill.description}`, skill.id);
+      option.disabled = skill.packaged && !skill.available;
+      els.skillSelect.add(option);
     }
-    els.skillSelect.value = state.skills.some((skill) => skill.id === saved) ? saved : "general";
+    els.skillSelect.value = state.skills.some((skill) => skill.id === saved && (!skill.packaged || skill.available)) ? saved : "general";
     renderSkillLibrary();
   }
 
   function renderSkillLibrary() {
     els.skillLibraryList.replaceChildren();
     for (const skill of state.skills) {
+      if (skill.packaged) continue;
       const row = document.createElement("article");
       row.className = "skill-library-row";
       const copy = document.createElement("div");
@@ -4508,6 +4605,95 @@
         row.append(actions);
       }
       els.skillLibraryList.append(row);
+    }
+  }
+
+  async function packageAction(button, action) {
+    button.disabled = true;
+    els.skillPackageMessage.textContent = "";
+    try {
+      await action();
+      await loadSkills();
+      await loadSkillPackages();
+    } catch (error) {
+      els.skillPackageMessage.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function loadSkillPackages() {
+    const catalog = await api("/api/skill-packages");
+    els.skillPackageList.replaceChildren();
+    els.skillPackageTemplates.replaceChildren();
+    if (catalog.error) els.skillPackageMessage.textContent = catalog.error;
+    const installed = new Set(asArray(catalog.packages).map(item => item.id));
+    const rowFor = (item) => {
+      const row = document.createElement("article");
+      row.className = "skill-library-row package-row";
+      const copy = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = `${item.name} · ${item.version}`;
+      const description = document.createElement("p");
+      description.textContent = item.description;
+      const access = document.createElement("p");
+      access.textContent = `Tool access: ${item.tools.join(", ") || "No tools"}. ${item.read_only ? "Read-only." : "May request changes with approval."}`;
+      const requirements = document.createElement("p");
+      requirements.textContent = `Requires: ${item.requires.join(", ") || "Alice core only"}`;
+      copy.append(title, description, access, requirements);
+      row.append(copy);
+      return row;
+    };
+    for (const item of asArray(catalog.packages)) {
+      const row = rowFor(item);
+      const health = document.createElement("p");
+      health.textContent = item.issues.length ? `Needs attention: ${item.issues.join("; ")}` : item.enabled ? "Enabled · Ready" : "Disabled · Ready to enable";
+      row.firstChild.append(health);
+      const actions = document.createElement("div");
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "secondary-button";
+      toggle.textContent = item.enabled ? "Disable" : "Enable";
+      toggle.disabled = !item.enabled && item.issues.length > 0;
+      toggle.addEventListener("click", () => packageAction(toggle, async () => {
+        await api(`/api/skill-packages/${encodeURIComponent(item.id)}`, {method: "PATCH", body: {enabled: !item.enabled}});
+      }));
+      const exportButton = document.createElement("button");
+      exportButton.type = "button";
+      exportButton.className = "secondary-button";
+      exportButton.textContent = "Export";
+      exportButton.addEventListener("click", () => packageAction(exportButton, async () => {
+        const manifest = await api(`/api/skill-packages/${encodeURIComponent(item.id)}/manifest`);
+        els.skillPackageManifest.value = JSON.stringify(manifest, null, 2);
+        els.skillPackageManifest.closest("details").open = true;
+        els.skillPackageManifest.focus();
+        els.skillPackageMessage.textContent = "Manifest ready to copy below.";
+      }));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "secondary-button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => packageAction(remove, async () => {
+        await api(`/api/skill-packages/${encodeURIComponent(item.id)}`, {method: "DELETE"});
+      }));
+      actions.append(toggle, exportButton, remove);
+      row.append(actions);
+      els.skillPackageList.append(row);
+    }
+    if (!installed.size) els.skillPackageList.textContent = "No capability packages installed yet.";
+    for (const item of asArray(catalog.templates)) {
+      const row = rowFor(item);
+      const install = document.createElement("button");
+      install.type = "button";
+      install.className = "secondary-button";
+      install.textContent = installed.has(item.id) ? "Installed" : "Install";
+      install.disabled = installed.has(item.id);
+      install.addEventListener("click", () => packageAction(install, async () => {
+        await api("/api/skill-packages", {method: "POST", body: item});
+        els.skillPackageMessage.textContent = "Installed disabled. Review tool access, then enable.";
+      }));
+      row.append(install);
+      els.skillPackageTemplates.append(row);
     }
   }
 
@@ -4734,6 +4920,40 @@
       openDialog(els.skillsDialog);
     });
     els.skillForm.addEventListener("submit", saveSkill);
+    els.voiceboxRefresh.addEventListener("click", loadVoicebox);
+    els.voiceboxStudio.addEventListener("click", async () => {
+      els.voiceboxStudio.disabled = true;
+      els.voiceboxStatus.textContent = "Opening Voicebox Studio…";
+      try {
+        const info = await api("/api/voicebox/studio", {method: "POST"});
+        els.voiceboxStatus.textContent = info.message + " After editing profiles, return here and refresh.";
+      } catch (error) {
+        els.voiceboxStatus.textContent = error.message;
+      } finally {
+        els.voiceboxStudio.disabled = false;
+      }
+    });
+    els.voiceboxStart.addEventListener("click", async () => {
+      els.voiceboxStart.disabled = true;
+      els.voiceboxStatus.textContent = "Starting local Voicebox…";
+      try {
+        const info = await api("/api/voicebox/start", {method: "POST"});
+        await loadVoicebox();
+        if (!info.ready) els.voiceboxStatus.textContent = info.message;
+      } catch (error) {
+        els.voiceboxStatus.textContent = error.message;
+        els.voiceboxStart.disabled = false;
+      }
+    });
+    els.openSkills.addEventListener("click", () => {
+      els.skillPackageMessage.textContent = "";
+      loadSkillPackages().catch(error => { els.skillPackageMessage.textContent = error.message; });
+    });
+    els.skillPackageImport.addEventListener("click", () => packageAction(els.skillPackageImport, async () => {
+      const manifest = JSON.parse(els.skillPackageManifest.value);
+      await api("/api/skill-packages", {method: "POST", body: manifest});
+      els.skillPackageMessage.textContent = "Imported disabled. Review tool access, then enable.";
+    }));
     els.voiceOutput.checked = getStored("voice-output") !== "false";
     restoreVoiceSettings();
     els.voiceOutput.addEventListener("change", () => {
@@ -4809,6 +5029,9 @@
     });
     els.uploadVoiceReference.addEventListener("click", uploadVoiceReference);
     els.testVoice.addEventListener("click", testVoice);
+    $$("[data-compare-voice]").forEach(button => button.addEventListener("click", () => {
+      void testVoice(button.dataset.compareVoice === "current" ? null : button.dataset.compareVoice);
+    }));
     els.saveVoiceSettings.addEventListener("click", saveVoiceSettings);
     els.workspaceInput.addEventListener("change", () => {
       state.workspacePath = ".";
@@ -4877,6 +5100,24 @@
       openDialog(els.settingsDialog);
     });
     els.openLocalAIModelsSettings.addEventListener("click", () => window.location.assign("/models"));
+    const memoryDialog = document.createElement("dialog");
+    memoryDialog.id = "memory-dialog";
+    memoryDialog.className = "modal";
+    memoryDialog.setAttribute("aria-labelledby", "memory-title");
+    const memoryShell = document.createElement("div");
+    memoryShell.className = "modal-shell memory-shell";
+    const closeMemory = document.createElement("button");
+    closeMemory.type = "button";
+    closeMemory.className = "secondary-button";
+    closeMemory.textContent = "Close memory";
+    closeMemory.addEventListener("click", () => memoryDialog.close());
+    memoryShell.append(closeMemory, $(".memory-section"));
+    memoryDialog.append(memoryShell);
+    document.body.append(memoryDialog);
+    $("#open-memory").addEventListener("click", openMemory);
+    $("#memory-search").addEventListener("input", () => renderMemories());
+    $("#memory-filter").addEventListener("change", () => renderMemories());
+    $("#memory-cancel-edit").addEventListener("click", resetMemoryEditor);
     els.memoryForm.addEventListener("submit", saveMemory);
 
     els.providerForm.addEventListener("submit", saveProvider);

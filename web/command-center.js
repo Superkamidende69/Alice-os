@@ -7,6 +7,7 @@
     { id: "focus", title: "Focus composer", detail: "Write a message to Alice", icon: "chat", keywords: "message type input" },
     { id: "models", title: "Open models", detail: "Choose a model or manage downloads", icon: "alice", keywords: "llm engine library" },
     { id: "voice", title: "Open Voice Studio", detail: "Tailor speech, wake phrase, and dictation", icon: "mic", keywords: "speech microphone jarvis talk" },
+    { id: "world", title: "Open World View", detail: "Launch God’s Eye View on this computer", icon: "spark", keywords: "globe map gods eye satellite aircraft spatial" },
     { id: "workspace", title: "Browse workspace", detail: "Inspect files in the current workspace", icon: "folder", keywords: "files code folder" },
     { id: "settings", title: "Open settings", detail: "Providers, preferences, and memories", icon: "settings", keywords: "configure preferences memory" },
     { id: "system", title: "Check system health", detail: "CPU, GPU, RAM, drives and service readiness", icon: "spark", keywords: "status diagnostics ram memory uptime cpu gpu hdd ssd disk storage hardware" },
@@ -35,7 +36,7 @@
   }
 
   function commandBlockReason(id, busy) {
-    if (busy && ["new-chat", "models", "voice"].includes(id)) return "Wait for the current response to finish, or cancel it first.";
+    if (busy && ["new-chat", "models", "voice", "world"].includes(id)) return "Wait for the current response to finish, or cancel it first.";
     if (!busy && id === "cancel-response") return "There is no active response to cancel.";
     return "";
   }
@@ -245,7 +246,7 @@
       openIfNeeded(); say("This command is not available yet. Let Alice finish connecting."); return false;
     }
     if (dialog.open) dialog.close();
-    if (id === "models" || id === "voice") {
+    if (id === "models" || id === "voice" || id === "world") {
       if (root.location.pathname.replace(/\/$/, "") !== `/${id}`) root.location.assign(`/${id}`);
     } else if (id === "focus") {
       if ($("#app-shell")?.hidden) root.location.assign("/");

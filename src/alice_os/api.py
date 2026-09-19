@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import __version__, kokoro, voicebox
 from .agent import RunCapacityError, RunConflictError, RunManager
 from .auth import create_auth_file, load_or_create_session_token, verify_auth_file
 from .cluster import Cluster, mount_cluster
@@ -41,6 +41,7 @@ from .config import ConfigStore
 from .diagnostics import SystemDiagnostics
 from .distributed import DistributedSettings, probe_devices
 from .handsfree import ConversationLease, HandsFreeConversation
+from .memory import parse_memory_command
 from .model_manager import ModelManager
 from .models import ProviderProfile
 from .paths import resource_root
@@ -66,6 +67,7 @@ from .runtimes import (
     runtime_status,
 )
 from .secure_store import SecretStore, SecretStoreError
+from .skill_packages import TEMPLATES, SkillManifest
 from .skills import AgentSkill, SkillStore
 from .storage import Storage
 from .tools import ToolContext, ToolError, workspace_list, workspace_read
@@ -87,6 +89,8 @@ from .voice import (
     voice_worker_status,
     warm_openvoice,
 )
+from .windows_asyncio import install_connection_reset_handler
+from .world_view import WorldView, is_host_client
 
 
 class SessionCreate(BaseModel):
@@ -130,6 +134,7 @@ class RunCreate(BaseModel):
     provider_id: str
     model: str
     agent_mode: bool = True
+    spoken_response: bool = False
     skill_id: str = Field(default="general", max_length=40)
     response_depth: str = Field(default="balanced", pattern="^(quick|balanced|thorough)$")
 
@@ -149,6 +154,10 @@ class SkillUpsert(BaseModel):
 class ApprovalDecision(BaseModel):
     call_id: str
     approved: bool
+
+
+class PackageEnabled(BaseModel):
+    enabled: bool = Field(strict=True)
 
 
 class ActiveProvider(BaseModel):
@@ -212,7 +221,7 @@ class HuggingFaceToken(BaseModel):
 class VoiceSynthesis(BaseModel):
     request_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
     text: str = Field(min_length=1, max_length=8_000)
-    speaker: str = Field(default="OPENVOICE-FEMALE", max_length=40)
+    speaker: str = Field(default="OPENVOICE-FEMALE", max_length=80)
     speed: float = Field(default=1.0, ge=0.7, le=1.3)
     reference: str = Field(default="", max_length=160)
     style: str = Field(default="balanced", max_length=32)
@@ -347,6 +356,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     network_access_token = load_or_create_session_token(config.data_dir / "network-session-token")
     huggingface_token_store = SecretStore(config.data_dir / "secrets" / "huggingface-token")
     web_dir = resource_root() / "web"
+    world_view = WorldView(config.data_dir)
+    voicebox_runtime = voicebox.Runtime(config.data_dir)
     runtime_snapshot: tuple[float, dict[str, Any]] | None = None
     runtime_refresh: asyncio.Task[dict[str, Any]] | None = None
 
@@ -368,6 +379,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        restore_loop_handler = install_connection_reset_handler()
         try:
             yield
         finally:
@@ -388,8 +400,14 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                 await cluster.gpu.stop()
                 await shutdown_openvoice()
             finally:
-                audio_cache.clear()
-                storage.close()
+                try:
+                    await world_view.stop()
+                finally:
+                    await kokoro.shutdown()
+                    await voicebox_runtime.stop()
+                    audio_cache.clear()
+                    storage.close()
+                    restore_loop_handler()
 
     app = FastAPI(
         title="Alice OS",
@@ -595,6 +613,37 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         """Serve the dedicated Alice model-management route with the normal session cookie."""
         return await index(request)
 
+    @app.get("/world", include_in_schema=False)
+    async def world_page(request: Request) -> Response:
+        response = await index(request)
+        return FileResponse(web_dir / "world.html", headers=dict(response.headers))
+
+    def require_world_host(request: Request) -> None:
+        require_session(request)
+        if not is_host_client(request.client.host if request.client else ""):
+            raise HTTPException(403, "World View runs on the Alice host. Open Alice on that computer to control the globe.")
+
+    @app.get("/api/world/status", dependencies=[Depends(require_session)])
+    async def world_status(request: Request) -> dict[str, Any]:
+        local = is_host_client(request.client.host if request.client else "")
+        result = world_view.status()
+        result["can_control"] = local
+        if not local:
+            result["url"] = None
+            result["access_message"] = "World View runs on the Alice host. Open Alice on that computer to control and view the globe."
+        return result
+
+    @app.post("/api/world/start", dependencies=[Depends(require_world_host)])
+    async def world_start() -> dict[str, Any]:
+        try:
+            return await world_view.start()
+        except (RuntimeError, OSError) as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/world/stop", dependencies=[Depends(require_world_host)])
+    async def world_stop() -> dict[str, Any]:
+        return await world_view.stop()
+
     @app.get("/api/state", dependencies=[Depends(require_session)])
     async def state(include_runtimes: bool = True) -> dict[str, Any]:
         settings = config.get()
@@ -616,6 +665,46 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.get("/api/skills", dependencies=[Depends(require_session)])
     async def skills() -> dict[str, Any]:
         return {"skills": app.state.skills.list()}
+
+    @app.get("/api/skill-packages", dependencies=[Depends(require_session)])
+    async def skill_packages() -> dict[str, Any]:
+        return {"packages": app.state.skills.packages.list(),
+                "templates": [manifest.model_dump() for manifest in TEMPLATES],
+                "error": app.state.skills.packages.load_error,
+                "tools": runs.tools.definitions()}
+
+    @app.post("/api/skill-packages", dependencies=[Depends(require_session)])
+    async def install_skill_package(body: SkillManifest) -> dict[str, Any]:
+        try:
+            return {"package": app.state.skills.install_package(body)}
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @app.patch("/api/skill-packages/{package_id}", dependencies=[Depends(require_session)])
+    async def enable_skill_package(package_id: str, body: PackageEnabled) -> dict[str, Any]:
+        try:
+            return {"package": app.state.skills.packages.set_enabled(package_id, body.enabled)}
+        except KeyError as error:
+            raise HTTPException(404, "Unknown skill package") from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @app.get("/api/skill-packages/{package_id}/manifest", dependencies=[Depends(require_session)])
+    async def export_skill_package(package_id: str) -> dict[str, Any]:
+        try:
+            return app.state.skills.packages.export(package_id)
+        except KeyError as error:
+            raise HTTPException(404, "Unknown skill package") from error
+
+    @app.delete("/api/skill-packages/{package_id}", dependencies=[Depends(require_session)])
+    async def remove_skill_package(package_id: str) -> Response:
+        try:
+            app.state.skills.packages.delete(package_id)
+        except KeyError as error:
+            raise HTTPException(404, "Unknown skill package") from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/api/skills", dependencies=[Depends(require_session)])
     async def save_skill(body: SkillUpsert) -> dict[str, Any]:
@@ -769,10 +858,12 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.post("/api/runs", dependencies=[Depends(require_session)])
     async def create_run(body: RunCreate) -> dict[str, str]:
-        if not body.model.strip():
+        local_command = parse_memory_command(body.message) is not None
+        if not body.model.strip() and not local_command:
             raise HTTPException(400, "Select a model before starting a task.")
         try:
-            config.get_provider(body.provider_id)
+            if not local_command:
+                config.get_provider(body.provider_id)
             run = runs.start(
                 session_id=body.session_id,
                 user_message=body.message,
@@ -781,6 +872,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                 agent_mode=body.agent_mode,
                 skill_id=body.skill_id,
                 response_depth=body.response_depth,
+                spoken_response=body.spoken_response,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -788,6 +880,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(409, str(error)) from error
         except RunCapacityError as error:
             raise HTTPException(429, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
         return {"run_id": run.id}
 
     @app.get("/api/runs/{run_id}/events", dependencies=[Depends(require_session)])
@@ -842,18 +936,26 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/memories", dependencies=[Depends(require_session)])
     async def list_memories() -> dict[str, Any]:
-        return {"memories": storage.list_global_memories()}
+        return {"memories": storage.list_global_memories(10000, include_pending=True)}
 
     @app.post("/api/memories", dependencies=[Depends(require_session)])
     async def create_memory(body: MemoryCreate) -> dict[str, Any]:
-        return storage.add_global_memory(
-            body.content.strip(),
-            category=body.category,
-            memory_key=body.key,
-            importance=body.importance,
-            confidence=body.confidence,
-            source="manual",
-        )
+        try:
+            return storage.add_global_memory(
+                body.content.strip(), category=body.category, memory_key=body.key,
+                importance=body.importance, confidence=body.confidence, source="manual",
+            )
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @app.post("/api/memories/{memory_id}/approve", dependencies=[Depends(require_session)])
+    async def approve_memory(memory_id: str) -> dict[str, Any]:
+        try:
+            return storage.approve_global_memory(memory_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
 
     @app.delete("/api/memories/{memory_id}", dependencies=[Depends(require_session)])
     async def delete_memory(memory_id: str) -> dict[str, Any]:
@@ -1325,10 +1427,34 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     async def voice_status() -> dict[str, Any]:
         return {
             **openvoice_status(),
+            "kokoro": {key: value for key, value in kokoro.status().items() if key != "python"},
             "transcription": transcription_status(),
             "worker": await voice_worker_status(),
             "pipeline": voice_pipeline_status(),
         }
+
+    @app.get("/api/voicebox/status", dependencies=[Depends(require_session)])
+    async def voicebox_status(request: Request) -> dict[str, Any]:
+        return {**await voicebox.status(),
+                "can_start": is_host_client(request.client.host if request.client else "")}
+
+    @app.post("/api/voicebox/start", dependencies=[Depends(require_session)])
+    async def voicebox_start(request: Request) -> dict[str, Any]:
+        if not is_host_client(request.client.host if request.client else ""):
+            raise HTTPException(403, "Start Voicebox from the Alice host computer.")
+        try:
+            return await voicebox_runtime.start()
+        except (ValueError, OSError) as error:
+            raise HTTPException(503, str(error)) from error
+
+    @app.post("/api/voicebox/studio", dependencies=[Depends(require_session)])
+    async def voicebox_studio(request: Request) -> dict[str, Any]:
+        if not is_host_client(request.client.host if request.client else ""):
+            raise HTTPException(403, "Open Voicebox Studio from the Alice host computer.")
+        try:
+            return await voicebox_runtime.open_studio()
+        except (ValueError, OSError) as error:
+            raise HTTPException(503, str(error)) from error
 
     @app.post("/api/voice/transcribe", dependencies=[Depends(require_session)])
     async def voice_transcribe(audio: UploadFile = File(...)) -> dict[str, str]:

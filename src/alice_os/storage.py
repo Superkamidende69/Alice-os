@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .memory import CATEGORIES, validate_memory
 from .models import StoredMessage
 
 
@@ -86,6 +87,7 @@ class Storage:
                 "source": "TEXT NOT NULL DEFAULT 'conversation'",
                 "last_accessed_at": "TEXT NOT NULL DEFAULT ''",
                 "archived": "INTEGER NOT NULL DEFAULT 0",
+                "approved": "INTEGER NOT NULL DEFAULT 1",
             }
             for name, definition in migrations.items():
                 if name not in columns:
@@ -249,9 +251,15 @@ class Storage:
         confidence: float = 1.0,
         source: str = "conversation",
     ) -> dict[str, Any]:
+        content = validate_memory(content)
+        approved = int(source != "agent")
         now = utc_now()
         category = category.strip().lower()[:32] or "fact"
+        if category not in CATEGORIES:
+            raise ValueError("Choose preference, profile, project, routine, or fact.")
         memory_key = memory_key.strip().lower()[:120]
+        if memory_key:
+            validate_memory(memory_key)
         importance = max(1, min(int(importance), 5))
         confidence = max(0.0, min(float(confidence), 1.0))
         with self._lock:
@@ -259,20 +267,20 @@ class Storage:
             if memory_key:
                 existing = self._connection.execute(
                     "SELECT id, content, created_at FROM global_memories "
-                    "WHERE archived = 0 AND category = ? AND memory_key = ?",
-                    (category, memory_key),
+                    "WHERE archived = 0 AND approved = ? AND category = ? AND memory_key = ?",
+                    (approved, category, memory_key),
                 ).fetchone()
             if existing is None:
                 existing = self._connection.execute(
                     "SELECT id, content, created_at FROM global_memories "
-                    "WHERE archived = 0 AND lower(content) = lower(?)",
-                    (content,),
+                    "WHERE archived = 0 AND approved = ? AND lower(content) = lower(?)",
+                    (approved, content),
                 ).fetchone()
             if existing:
                 self._connection.execute(
                     "UPDATE global_memories SET content = ?, importance = ?, confidence = ?, "
-                    "source = ?, updated_at = ?, last_accessed_at = ? WHERE id = ?",
-                    (content, importance, confidence, source, now, now, existing["id"]),
+                    "source = ?, category = ?, memory_key = ?, updated_at = ?, last_accessed_at = ? WHERE id = ?",
+                    (content, importance, confidence, source, category, memory_key, now, now, existing["id"]),
                 )
                 result = dict(existing)
                 result.update({
@@ -281,6 +289,7 @@ class Storage:
                     "memory_key": memory_key,
                     "importance": importance,
                     "confidence": confidence,
+                    "approved": approved,
                 })
                 return result
             memory = {
@@ -291,26 +300,27 @@ class Storage:
                 "memory_key": memory_key,
                 "importance": importance,
                 "confidence": confidence,
+                "approved": approved,
             }
             self._connection.execute(
                 "INSERT INTO global_memories "
                 "(id, content, source_session_id, created_at, updated_at, category, memory_key, "
-                "importance, confidence, source, last_accessed_at, archived) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                "importance, confidence, source, last_accessed_at, approved, archived) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
                 (
                     memory["id"], content, source_session_id, now, now, category, memory_key,
-                    importance, confidence, source, now,
+                    importance, confidence, source, now, approved,
                 ),
             )
         return memory
 
-    def list_global_memories(self, limit: int = 100) -> list[dict[str, str]]:
+    def list_global_memories(self, limit: int = 100, *, include_pending: bool = False) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT id, content, created_at, updated_at, category, memory_key, importance, "
-                "confidence, source, last_accessed_at FROM global_memories "
-                "WHERE archived = 0 ORDER BY importance DESC, updated_at DESC LIMIT ?",
-                (max(1, min(limit, 500)),),
+                "confidence, source, last_accessed_at, approved FROM global_memories "
+                "WHERE archived = 0 AND (approved = 1 OR ?) ORDER BY importance DESC, updated_at DESC LIMIT ?",
+                (int(include_pending), max(1, min(limit, 10000))),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -324,7 +334,7 @@ class Storage:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT id, content, created_at, updated_at, category, memory_key, importance, "
-                "confidence, source, last_accessed_at FROM global_memories WHERE archived = 0",
+                "confidence, source, last_accessed_at FROM global_memories WHERE archived = 0 AND approved = 1",
             ).fetchall()
         now = datetime.now(UTC)
         ranked: list[tuple[float, dict[str, Any]]] = []
@@ -360,9 +370,11 @@ class Storage:
     def delete_global_memory(self, memory_id: str) -> None:
         with self._lock:
             cursor = self._connection.execute(
-                "UPDATE global_memories SET archived = 1, updated_at = ? WHERE id = ? AND archived = 0",
-                (utc_now(), memory_id),
+                "DELETE FROM global_memories WHERE id = ?",
+                (memory_id,),
             )
+            # Remove the migration source too, so forgotten legacy entries cannot return.
+            self._connection.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         if cursor.rowcount == 0:
             raise KeyError(f"Unknown memory: {memory_id}")
 
@@ -372,13 +384,15 @@ class Storage:
         if not selected:
             raise ValueError("No memory changes supplied")
         if "content" in selected:
-            selected["content"] = str(selected["content"]).strip()
-            if not selected["content"]:
-                raise ValueError("Memory content is required")
+            selected["content"] = validate_memory(str(selected["content"]))
         if "category" in selected:
             selected["category"] = str(selected["category"]).strip().lower()[:32] or "fact"
+            if selected["category"] not in CATEGORIES:
+                raise ValueError("Choose preference, profile, project, routine, or fact.")
         if "memory_key" in selected:
             selected["memory_key"] = str(selected["memory_key"]).strip().lower()[:120]
+            if selected["memory_key"]:
+                validate_memory(selected["memory_key"])
         if "importance" in selected:
             selected["importance"] = max(1, min(int(selected["importance"]), 5))
         if "confidence" in selected:
@@ -398,3 +412,30 @@ class Storage:
                 (memory_id,),
             ).fetchone()
         return dict(row)
+
+    def approve_global_memory(self, memory_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM global_memories WHERE id = ? AND archived = 0 AND approved = 0", (memory_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Pending memory not found")
+            result = self.add_global_memory(
+                row["content"], row["source_session_id"], category=row["category"],
+                memory_key=row["memory_key"], importance=row["importance"],
+                confidence=row["confidence"], source="approved",
+            )
+            self.delete_global_memory(memory_id)
+            return result
+
+    def context_memories(self, query: str) -> list[dict[str, Any]]:
+        relevant = self.search_global_memories(query, 8)
+        preferences = [m for m in self.list_global_memories(10000) if m["category"] == "preference"][:4]
+        unique = {m["id"]: m for m in [*preferences, *relevant]}
+        # Keep memory context bounded even when individual entries are long.
+        result, remaining = [], 8000
+        for item in unique.values():
+            if len(item["content"]) <= remaining:
+                result.append(item)
+                remaining -= len(item["content"])
+        return result

@@ -101,6 +101,23 @@ def manager(tmp_path: Path):
     storage.close()
 
 
+@pytest.mark.asyncio
+async def test_spoken_reply_instructions_only_apply_when_requested(manager, tmp_path, monkeypatch):
+    captured = []
+    async def infer(*args, **kwargs):
+        captured.append(kwargs["messages"][0]["content"])
+        return AssistantTurn(content="Ready.")
+    monkeypatch.setattr("alice_os.agent.chat", infer)
+    provider = manager.config.get().providers[0].id
+    for enabled in (False, True):
+        session = manager.storage.create_session(workspace=str(tmp_path))
+        run = manager.start(session_id=session["id"], user_message="Hello", provider_id=provider, model="test", agent_mode=False, spoken_response=enabled)
+        await run.task
+    assert "This reply will be spoken aloud" not in captured[0]
+    assert "This reply will be spoken aloud" in captured[1]
+    assert "Never invent activity" in captured[1]
+
+
 @pytest.mark.parametrize("depth,expected", [("quick", "brief, direct"), ("thorough", "thorough answer"), ("balanced", None)])
 async def test_response_depth_reaches_provider(manager, tmp_path, monkeypatch, depth, expected):
     captured = []

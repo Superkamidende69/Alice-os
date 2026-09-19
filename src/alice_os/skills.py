@@ -6,6 +6,8 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from .skill_packages import PackageStore, SkillManifest
+
 
 @dataclass(frozen=True, slots=True)
 class AgentSkill:
@@ -14,6 +16,8 @@ class AgentSkill:
     description: str
     instructions: str
     read_only: bool = False
+    allowed_tools: tuple[str, ...] | None = None
+    packaged: bool = False
 
 
 _SKILLS = (
@@ -70,6 +74,7 @@ class SkillStore:
         self.path = data_dir / "skills.json"
         self._lock = threading.RLock()
         self._custom = self._load()
+        self.packages = PackageStore(data_dir)
 
     def _load(self) -> dict[str, AgentSkill]:
         try:
@@ -129,11 +134,29 @@ class SkillStore:
             return [
                 *(self._public(skill, built_in=True) for skill in _SKILLS),
                 *(self._public(skill, built_in=False) for skill in self._custom.values()),
+                *self.packages.list(),
             ]
 
     def get(self, skill_id: str) -> AgentSkill:
         with self._lock:
+            package = self.packages.get(skill_id)
+            if package is not None:
+                if not package["available"]:
+                    raise ValueError("Skill package is disabled or unavailable: " + skill_id)
+                return AgentSkill(
+                    id=skill_id, name=package["name"], description=package["description"],
+                    instructions=package["instructions"], read_only=package["read_only"],
+                    allowed_tools=tuple(package["tools"]), packaged=True,
+                )
+            if self.packages.load_error and skill_id not in _BY_ID and skill_id not in self._custom:
+                raise ValueError(self.packages.load_error)
             return self._custom.get(skill_id, get_skill(skill_id))
+
+    def install_package(self, manifest: SkillManifest) -> dict:
+        with self._lock:
+            if manifest.id in _BY_ID or manifest.id in self._custom:
+                raise ValueError("Package ID conflicts with an existing workflow")
+            return self.packages.install(manifest)
 
     def upsert(self, skill: AgentSkill) -> AgentSkill:
         skill_id = skill.id.strip().lower()
@@ -152,6 +175,8 @@ class SkillStore:
             read_only=skill.read_only,
         )
         with self._lock:
+            if self.packages.get(skill_id) is not None:
+                raise ValueError("Package IDs cannot be replaced by custom workflows")
             self._custom[skill_id] = custom
             self._save()
         return custom

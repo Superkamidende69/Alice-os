@@ -1,5 +1,61 @@
 # Alice OS
 
+## Voicebox integration
+
+Voice Studio can now discover local Voicebox profiles and use them for previews,
+chat, and hands-free replies. Start the optional private runtime and open Voicebox
+Studio from Alice, then refresh and select a profile. Existing playback interruption
+and tool approvals remain in Alice. See [Voicebox setup and controls](docs/voicebox.md).
+
+## Capability packages
+
+The Skills manager now includes installable **Workspace inspector**, **Git reviewer**,
+and **Memory recall** packages. Each declares its tool access and dependencies;
+imports start disabled until enabled. Tool restrictions are enforced by the server,
+including JSON compatibility mode and actions waiting for approval. You can import,
+export, enable, disable, and remove manifests without changing existing workflows.
+See [capability packages](docs/skill-packages.md) for the format and permission model.
+
+## Natural voice comparison
+
+Voice Studio now offers optional **Kokoro Heart, Bella, and Michael** voices.
+They run locally on CPU in an isolated, resident worker, leaving GPU memory for
+the language model. The existing OpenVoice selection stays unchanged.
+
+Install on a source checkout with `.venv/Scripts/python.exe scripts/setup-kokoro.py`.
+The installer keeps dependencies in `tools/kokoro/.venv` and verifies the two
+downloaded model files against pinned SHA-256 hashes. Approximately 354 MB of
+model files are required, plus the Python runtime dependencies. No API key is used.
+For packaged EXEs, rebuild Alice and set `ALICE_KOKORO_HOME` to the installed
+runtime folder, or place `tools/kokoro` beside the EXE.
+
+In **Voice Studio → Preview**, enter a sentence and use **Hear current voice**,
+**Hear Heart**, **Hear Bella**, and **Hear Michael** to compare the same text and
+speed. These buttons do not change the saved voice. Select a favorite in the voice
+selector and click **Save voice settings** to use it for replies. Kokoro supports
+speed and its built-in voices; OpenVoice's cloning and mood sliders do not apply.
+The first Kokoro request loads its model; following clips reuse it. Interrupting
+inference stops its worker, so the next request loads it again. Shutdown releases
+the worker; logs live in `ALICE_HOME/logs/kokoro.log`.
+
+Kokoro streaming keeps complete sentences up to a bounded phrase length. OpenVoice
+keeps explicit punctuation pauses while trimming excessive silence at clip edges.
+With Speak replies or hands-free enabled, Alice requests concise, conversational
+sentences without invented progress acknowledgments. Written-only requests keep
+their existing response style. Existing interruption and tool-approval behavior
+is preserved.
+
+Model: [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), Apache 2.0.
+Runtime: [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx), MIT.
+
+## World View
+
+Alice can now launch and manage [God’s Eye View](https://github.com/bilawalsidhu/gods-eye-view)
+from the **World View** sidebar page. The full globe runs in its own local tab,
+with Alice providing Start/Stop controls and “Open World View” voice navigation.
+Run `scripts/setup-gods-eye.ps1` once, restart Alice, then start the globe from
+the page. See [setup, provider requirements, and attribution](docs/world-view.md).
+
 ## Interface refresh
 
 Models and Voice each have one navigation entry in the sidebar. Model selection
@@ -823,3 +879,35 @@ fail to load. The UI reports the failure; details are in `logs/model-loader.log`
 A failed switch leaves the previous server stopped; load another compatible model
 to recover. No models are downloaded or copied during switching. **Delete file**
 removes only the selected file and is blocked for the loaded model.
+
+## Personal memory
+
+Open **Memory** in the sidebar to search, add, edit, approve, or forget entries.
+Use preferences for ongoing response choices and projects for decisions and next
+steps. Memories persist across conversations and Alice restarts.
+
+You can type these commands, dictate them, or say them during hands-free chat:
+
+- **Remember that I prefer concise answers.**
+- **Remember project: Alice OS — next step is voice testing.**
+- **What were we working on?**
+- **What do you remember about me?**
+- **Recall voice testing.**
+- **Forget I prefer concise answers.** (Use the exact saved text.)
+- **Open memory.** (Voice navigation.)
+
+Explicit memory commands are handled locally and do not need a responding model.
+They use the normal conversation and spoken-reply pipeline. Ambiguous commands
+such as “remember this” or “forget that” ask you to specify an exact fact.
+Model-proposed memories appear as **Needs approval** and are excluded from future
+replies until you approve them. Approving a suggestion with the same category and
+stable key replaces the previous value; editing a pending suggestion does not
+approve it. Preferences are included alongside relevant retrieved memories in a
+bounded context. Ordinary chat messages are not automatically saved as memories.
+
+Memory lives in Alice's local SQLite database. Relevant approved entries may be
+sent to your selected AI provider as conversation context; choose a local provider
+for local inference. Common credential and account-number patterns are rejected
+on creation and editing, but this filter is not a substitute for keeping secrets
+out. Forget removes the memory entry, including its legacy migration source;
+existing chat history and external backups remain unchanged.

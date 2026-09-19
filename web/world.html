@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>World View · Alice OS</title>
+  <link rel="stylesheet" href="/static/world.css?v=1" />
+  <script src="/static/world.js?v=host-access-2" defer></script>
+</head>
+<body>
+  <header><a href="/">← Alice OS</a><span>SPATIAL INTELLIGENCE</span><a href="https://github.com/bilawalsidhu/gods-eye-view" target="_blank" rel="noopener noreferrer">Upstream project ↗</a></header>
+  <main>
+    <section class="hero">
+      <div><p class="eyebrow">ALICE / WORLD VIEW</p><h1>A live view<br />of your world.</h1><p class="intro">Explore God’s Eye View: a globe for public flight, satellite, earthquake, and camera data.</p></div>
+      <div class="globe" aria-hidden="true"><div></div><span>GOD’S EYE VIEW</span></div>
+    </section>
+    <section class="console" aria-labelledby="runtime-title">
+      <div><p class="eyebrow">LOCAL MODULE</p><h2 id="runtime-title">Globe runtime</h2><p id="world-status" role="status" aria-live="polite">Checking installation…</p></div>
+      <div class="actions"><button id="world-start" disabled>Start globe</button><a id="world-open" hidden target="_blank" rel="noopener noreferrer">Open globe ↗</a><button id="world-stop" disabled>Stop</button><button id="world-refresh">Refresh</button></div>
+      <p id="world-error" role="alert"></p>
+      <div id="world-setup" hidden><p>On the Alice computer, open PowerShell in your Alice project and run:</p><code>powershell -ExecutionPolicy Bypass -File scripts/setup-gods-eye.ps1</code><p>Then restart Alice and return here.</p></div>
+      <p class="muted">The globe opens in a separate tab and runs only on this computer. Stop it here to release its resources. Alice also stops the process it launched when Alice shuts down.</p>
+    </section>
+    <section class="cards" aria-label="Getting started">
+      <article><span>01 / EXPLORE</span><h2>Start without keys</h2><p>Use the included basemap and public feeds. Live-feed availability depends on each source and your connection. Some overlays are simulations or estimates.</p></article>
+      <article><span>02 / POWER UP</span><h2>Add optional providers</h2><p>Use POWER UP inside the globe for photorealistic maps, additional feeds, or its built-in voice assistant. Provider keys, terms, and quotas apply. Alice’s credentials are not copied over.</p></article>
+      <article><span>03 / ASK ALICE</span><h2>“Open World View”</h2><p>Use Alice’s voice navigation to reach this page. Globe camera control and scene questions use God’s Eye View’s own microphone and optional OpenAI configuration.</p></article>
+    </section>
+    <footer>God’s Eye View by Bilawal Sidhu · MIT source code · Data and assets retain their own licenses. <a href="https://github.com/bilawalsidhu/gods-eye-view/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Attribution &amp; licenses ↗</a></footer>
+  </main>
+</body>
+</html>

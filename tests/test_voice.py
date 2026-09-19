@@ -206,6 +206,15 @@ def test_punctuation_pauses_are_written_to_short_streamed_wav(tmp_path):
     assert list(tmp_path.iterdir()) == [output]
 
 
+def test_silence_trimming_keeps_consonant_padding_and_punctuation_gap(tmp_path):
+    tone = b"\x01\x01" * 100
+    padded = bytes(1000) + tone + bytes(1000)
+    assert speech.trim_padding(padded, 1, 2, 1000) == bytes(60) + tone + bytes(60)
+    assert speech.trim_padding(bytes(400), 1, 2, 1000) == bytes(400)
+    assert speech.trim_padding(tone, 1, 2, 1000) == tone
+    assert speech.pause_after("Wait,") < speech.pause_after("Ready.")
+
+
 @pytest.mark.asyncio
 async def test_worker_interruption_does_not_trigger_fallback(monkeypatch, tmp_path):
     import alice_os.voice as voice

@@ -6617,3 +6617,20 @@ html[data-alice-mobile="true"] .auth-card {
     grid-template-columns: 1fr;
   }
 }
+/* Personal memory review stays readable on both desktop and phone screens. */
+#memory-dialog { width: min(760px, calc(100vw - 24px)); }
+.memory-shell { display: grid; gap: 18px; max-height: 85vh; overflow-y: auto; }
+.memory-shell > button { justify-self: end; }
+.memory-shell .memory-section { display: grid; gap: 12px; min-width: 0; }
+.memory-shell .memory-card { flex-wrap: wrap; gap: 12px; }
+.memory-shell .profile-details { min-width: 0; overflow-wrap: anywhere; }
+.memory-shell .profile-actions { flex-wrap: wrap; }
+.memory-shell input, .memory-shell select { width: 100%; min-width: 0; }
+.memory-shell .model-pull-row { flex-wrap: wrap; }
+.memory-shell .model-pull-row input { flex: 1 1 240px; }
+#open-memory { width: 100%; text-align: left; cursor: pointer; font: inherit; }
+/* Capability manifests keep long tool names readable in the compact library. */
+.package-row { flex-wrap: wrap; }
+.package-row > div:first-child { min-width: 0; overflow-wrap: anywhere; flex: 1 1 230px; }
+.package-row > div:last-child { display: flex; gap: 8px; flex-wrap: wrap; }
+#skill-package-manifest { width: 100%; box-sizing: border-box; margin: 10px 0; font-family: var(--font-mono, monospace); }

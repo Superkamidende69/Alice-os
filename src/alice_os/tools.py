@@ -862,7 +862,7 @@ class ToolRegistry:
             ),
             "memory_store": ToolDefinition(
                 name="memory_store",
-                description="Remember a concise user preference or durable fact across all future conversations. Only save stable, useful facts.",
+                description="Propose a concise preference or project fact for the user's Memory review queue. approved=0 means pending, not remembered. Never claim it is saved for future use until approved.",
                 parameters={
                     **object_schema,
                     "properties": {
@@ -896,15 +896,17 @@ class ToolRegistry:
                     "properties": {"id": {"type": "string"}},
                     "required": ["id"],
                 },
-                requires_approval=False,
+                requires_approval=True,
                 handler=memory_forget,
             ),
         }
 
-    def definitions(self, *, read_only: bool = False) -> list[dict[str, Any]]:
+    def definitions(self, *, read_only: bool = False, allowed_tools: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
         tools = self._tools.values()
         if read_only:
-            tools = (tool for tool in tools if not tool.requires_approval)
+            tools = (tool for tool in tools if not tool.requires_approval and tool.name != "memory_store")
+        if allowed_tools is not None:
+            tools = (tool for tool in tools if tool.name in allowed_tools)
         return [tool.as_openai() for tool in tools]
 
     def get(self, name: str) -> ToolDefinition:

@@ -23,7 +23,7 @@
       content="Alice OS — a private, local-first AI workspace for cloud and GGUF models."
     />
     <title>Alice OS</title>
-    <link rel="stylesheet" href="/static/styles.css?v=alice-voice-output-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=voicebox-1" />
     <link rel="stylesheet" href="/static/jarvis.css?v=voice-2" />
     <link rel="stylesheet" href="/static/refined.css?v=janus-images-1" />
     <script src="/static/interface.js?v=composer-20260913" defer></script>
@@ -31,8 +31,9 @@
     <script src="/static/voice-input.js?v=voice-2" defer></script>
     <script src="/static/voice-experience.js?v=voice-2" defer></script>
     <script src="/static/hands-free.js?v=voice-2" defer></script>
-    <script src="/static/voice-commands.js?v=jarvis-1" defer></script>
-    <script src="/static/app.js?v=janus-chat-20260913" defer></script>
+    <script src="/static/voice-commands.js?v=memory-1" defer></script>
+    <script src="/static/memory.js?v=1" defer></script>
+    <script src="/static/app.js?v=voicebox-1" defer></script>
     <script src="/static/command-center.js?v=metrics-20260910" defer></script>
   </head>
   <body>
@@ -189,6 +190,10 @@
 
         <nav class="sidebar-pages" aria-label="Alice pages">
           <div class="section-label"><span>Workspace</span></div>
+          <button class="sidebar-page" id="open-memory" type="button">
+            <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span>
+            <span><strong>Memory</strong><small>Preferences, projects &amp; next steps</small></span>
+          </button>
           <a class="sidebar-page" href="/" aria-current="page">
             <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-chat"></use></svg></span>
             <span><strong>Conversations</strong><small>Think, create, and take action</small></span>
@@ -200,6 +205,10 @@
           <a class="sidebar-page" href="/cluster">
             <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-alice"></use></svg></span>
             <span><strong>Network</strong><small>Connect inference workers</small></span>
+          </a>
+          <a class="sidebar-page" href="/world">
+            <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span>
+            <span><strong>World View</strong><small>God’s Eye globe &amp; live data</small></span>
           </a>
           <a class="sidebar-page" id="open-voice-studio" href="/voice">
             <span class="sidebar-page-icon"><svg aria-hidden="true"><use href="#icon-speaker"></use></svg></span>
@@ -592,19 +601,28 @@
           <section class="profile-section memory-section" aria-labelledby="memory-title">
             <div class="section-heading">
               <h3 id="memory-title">Alice memory</h3>
-              <span>Local only</span>
+              <span>Stored on this Alice host</span>
             </div>
-            <p>Stable preferences and facts are available in future conversations. Avoid secrets and passwords.</p>
+            <p>You decide what Alice remembers. Approved memories can be included in requests to your selected AI provider. Keep passwords and sensitive account details out.</p>
+            <p>Try “Remember project: Alice OS — next step is voice testing,” “What were we working on?” or “Forget” followed by an exact saved fact.</p>
+            <label for="memory-search">Search memories</label>
+            <input id="memory-search" type="search" placeholder="Search facts, preferences, or projects" />
+            <label for="memory-filter">Show</label>
+            <select id="memory-filter"><option value="">All entries</option><option value="pending">Needs approval</option><option value="preference">Preferences</option><option value="project">Projects</option><option value="profile">Profile</option><option value="routine">Routines</option><option value="fact">Facts</option></select>
+            <p id="memory-count" role="status"></p>
             <div class="profile-list" id="memory-list"></div>
             <div class="profile-empty" id="memory-empty">
-              <p>No persistent memories yet.</p>
+              <p>No matching memories.</p>
               <span>Ask Alice to remember something, or add one below.</span>
             </div>
             <form class="model-pull-form" id="memory-form">
-              <label for="memory-input">Remember a fact</label>
+              <label for="memory-category">Category</label>
+              <select id="memory-category"><option value="fact">Fact</option><option value="preference">Preference</option><option value="project">Project / next step</option><option value="profile">Profile</option><option value="routine">Routine</option></select>
+              <label for="memory-input">What should Alice remember?</label>
               <div class="model-pull-row">
                 <input id="memory-input" name="content" type="text" required maxlength="4000" autocomplete="off" placeholder="e.g. I prefer concise answers" />
                 <button class="secondary-button" type="submit">Remember</button>
+                <button class="secondary-button" id="memory-cancel-edit" type="button" hidden>Cancel edit</button>
               </div>
               <div class="form-message" id="memory-message" role="status" aria-live="polite"></div>
             </form>
@@ -660,6 +678,21 @@
           </button>
         </header>
         <div class="skill-library-list" id="skill-library-list"></div>
+        <section class="skill-form" aria-labelledby="packages-title">
+          <h3 id="packages-title">Capability packages</h3>
+          <p>Install a focused toolkit, review its access, then enable it. File changes and commands still require approval.</p>
+          <div id="skill-package-list" class="skill-library-list"></div>
+          <h4>Starter packages</h4>
+          <div id="skill-package-templates" class="skill-library-list"></div>
+          <details>
+            <summary>Import or export a package</summary>
+            <p>Paste a version 1 JSON manifest. Imports and updates start disabled. Packages use Alice's existing tools; imports do not run code or install dependencies.</p>
+            <label for="skill-package-manifest">Package manifest</label>
+            <textarea id="skill-package-manifest" rows="8" maxlength="16000" spellcheck="false"></textarea>
+            <button id="skill-package-import" type="button" class="secondary-button">Import package</button>
+          </details>
+          <p id="skill-package-message" role="status" aria-live="polite"></p>
+        </section>
         <form class="provider-form skill-form" id="skill-form">
           <h3>Create or update a custom skill</h3>
           <label><span>Skill ID</span><input id="skill-id" required maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,38}" placeholder="python-engineer" /></label>
@@ -973,7 +1006,7 @@
             <small>Input and volume preferences save automatically in this browser. Changing input settings stops listening so the microphone switches cleanly.</small>
           </section>
           <section class="voice-card" aria-labelledby="voice-voice-title">
-            <div class="section-heading"><h3 id="voice-voice-title">Voice profile</h3><span>OpenVoice</span></div>
+            <div class="section-heading"><h3 id="voice-voice-title">Voice profile</h3><span>Local speech engines</span></div>
             <div class="voice-preset-section" aria-labelledby="voice-preset-title">
               <div>
                 <strong id="voice-preset-title">Quick presets</strong>
@@ -986,9 +1019,23 @@
               <select id="voice-speaker">
                 <option value="OPENVOICE-FEMALE" selected>Alice female — OpenVoice GPU (recommended)</option>
                 <option value="EN-Newest">OpenVoice English — GPU</option>
+                <option value="KOKORO-HEART">Kokoro Heart — local CPU</option>
+                <option value="KOKORO-BELLA">Kokoro Bella — local CPU</option>
+                <option value="KOKORO-MICHAEL">Kokoro Michael — local CPU</option>
                 <option value="WINDOWS-ZIRA">Basic female — Windows fallback</option>
               </select>
             </label>
+            <section aria-labelledby="voicebox-title">
+              <h4 id="voicebox-title">Voicebox</h4>
+              <p id="voicebox-status" role="status">Connect Voicebox to use its voice profiles in Alice.</p>
+              <div class="modal-actions">
+                <button id="voicebox-start" type="button" class="secondary-button">Start local Voicebox</button>
+                <button id="voicebox-studio" type="button" class="secondary-button">Open Voicebox Studio</button>
+                <button id="voicebox-refresh" type="button" class="secondary-button">Refresh profiles</button>
+                <a href="https://github.com/jamiepine/voicebox" target="_blank" rel="noopener noreferrer">Voicebox studio &amp; downloads</a>
+              </div>
+              <small>Manage cloned voices, models, and effects in Voicebox. Alice uses the selected profile for previews and spoken replies. Voicebox retains generated text and audio in its local history.</small>
+            </section>
             <label>
               <span>Speech speed</span>
               <select id="voice-speed">
@@ -1037,6 +1084,14 @@
               <textarea id="voice-test-text" rows="4" maxlength="500">Hello. I’m Alice. Tell me what you have in mind, and we’ll take it from here.</textarea>
               <small>Audition a voice or reference without sending a chat message.</small>
             </label>
+            <p id="kokoro-status" role="status">Checking optional Kokoro voices…</p>
+            <div class="voice-profile-actions" aria-label="Compare voices using the same preview text">
+              <button class="secondary-button" type="button" data-compare-voice="current">Hear current voice</button>
+              <button class="secondary-button" type="button" data-compare-voice="KOKORO-HEART">Hear Heart</button>
+              <button class="secondary-button" type="button" data-compare-voice="KOKORO-BELLA">Hear Bella</button>
+              <button class="secondary-button" type="button" data-compare-voice="KOKORO-MICHAEL">Hear Michael</button>
+            </div>
+            <small>Each button reads the text above at your selected speed. Comparisons do not change your saved voice. Select a voice, then Save voice settings when you have a favorite.</small>
             <div class="voice-studio-playback" id="voice-studio-playback" hidden>
               <span id="voice-studio-playback-status" role="status">Preview ready.</span>
               <audio id="voice-studio-player" controls preload="metadata" aria-label="Voice studio preview playback"></audio>
