@@ -1,0 +1,70 @@
+name: localalice
+
+services:
+  localai:
+    image: localai-h:talk
+    container_name: localalice-localai
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8080:8080"
+    environment:
+      MODELS_PATH: /models
+      LOCALAI_VRAM_WARM_LIMIT: "0"
+      LOCALAI_ARTIFACT_DOWNLOAD_CONCURRENCY: "4"
+      HF_TOKEN: ${LOCALAI_HF_TOKEN:-}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      # Reuse the existing LocalAI library rather than downloading models again.
+      - type: bind
+        source: H:/LocalAI/models
+        target: /models
+      - type: bind
+        source: H:/LocalAI/backends
+        target: /backends
+      - type: bind
+        source: H:/LocalAI/configuration
+        target: /configuration
+      - type: bind
+        source: H:/LocalAI/data
+        target: /data
+      - type: bind
+        source: H:/LocalAI/images
+        target: /tmp/generated/images
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  freetoken:
+    build:
+      context: ./freetoken-backend
+    image: localalice-freetoken:local
+    container_name: localalice-freetoken
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      disable: true
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      # FreeToken sees the same LocalAI-managed model library.
+      - type: bind
+        source: H:/LocalAI/models
+        target: /models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
